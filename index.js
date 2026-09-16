@@ -75,6 +75,52 @@ io.on('connection', (socket) => {
     }));
   };
 
+  // === NOVA FUNÇÃO: REMOVER JOGADOR (Usada ao Sair ou Desconectar) ===
+  const removerJogador = (socketId) => {
+    for (const codigoSala in salas) {
+      const sala = salas[codigoSala];
+      const index = sala.jogadores.findIndex(j => j.id === socketId);
+      
+      if (index !== -1) {
+        const nomeRemovido = sala.jogadores[index].nome;
+        sala.jogadores.splice(index, 1); // Remove da lista
+        
+        if (sala.jogadores.length === 0) {
+          delete salas[codigoSala]; // Destrói a sala se ficar vazia
+        } else {
+          // Se o jogo estiver rolando, avisa todo mundo e arruma o turno
+          if (sala.status === 'jogando') {
+            io.to(codigoSala).emit('erro', `⚠️ ${nomeRemovido} saiu da partida!`);
+            
+            // Ajusta o turno se quem saiu estava antes ou na vez
+            if (sala.turnoIndex >= sala.jogadores.length) {
+              sala.turnoIndex = 0;
+            } else if (index < sala.turnoIndex) {
+              sala.turnoIndex -= 1; 
+            }
+            
+            io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
+            sala.jogadores.forEach(jogador => {
+              io.to(jogador.id).emit('estado_atualizado', {
+                minhaMao: jogador.mao,
+                cartaMesa: sala.mesa[sala.mesa.length - 1],
+                turnoAtual: sala.jogadores[sala.turnoIndex].id,
+                sentido: sala.sentido,
+                comprouNestaRodada: sala.comprouNestaRodada,
+                comprasAcumuladas: sala.comprasAcumuladas,
+                infoJogadores: obterInfoJogadores(sala)
+              });
+            });
+          } else {
+            // Se estava no lobby, só atualiza para todos (passando o Host se o dono saiu)
+            io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
+          }
+        }
+        break; // Assume que o jogador só está em 1 sala
+      }
+    }
+  };
+
   socket.on('criar_sala', ({ nomeJogador, avatar }) => {
     const codigoSala = Math.floor(1000 + Math.random() * 9000).toString();
     salas[codigoSala] = {
@@ -121,10 +167,7 @@ io.on('connection', (socket) => {
         jogador.disseUno = false; 
       });
 
-      // === NOVA REGRA DE INÍCIO ===
-      // Procura no baralho a primeira carta que seja um NÚMERO (!isNaN) e NÃO SEJA PRETA
       const indexCartaValida = sala.baralho.findIndex(c => !isNaN(c.valor) && c.cor !== 'preto');
-      // Remove a carta encontrada do baralho e define como carta do topo
       let cartaTopo = sala.baralho.splice(indexCartaValida, 1)[0];
       
       sala.mesa.push(cartaTopo);
@@ -183,12 +226,14 @@ io.on('connection', (socket) => {
       sala.mesa.push(cartaJogada);
     });
 
+    // === ALTERAÇÃO DA REGRA DO 9 (Olhar a última carta) ===
     const ultimaCartaJogada = sala.mesa[sala.mesa.length - 1];
     if (ultimaCartaJogada.cor === 'preto' && novaCor) {
       ultimaCartaJogada.cor = novaCor;
     }
 
     let pulos = 1;
+    // (Lógica baseada na primeira carta para blocos/inverso continua igual pois não formam sequências variadas)
     const valorCarta = cartas[0].valor;
 
     if (valorCarta === 'inverter') {
@@ -207,7 +252,8 @@ io.on('connection', (socket) => {
       else if (alvoTroca === 'todos') {
         const maosAntigas = sala.jogadores.map(j => [...j.mao]);
         sala.jogadores.forEach((jogador, i) => {
-          const indexDeQuemPassou = (i - sala.sentido + sala.jogadores.length) % sala.jogadores.length;
+          // Fórmula matemática super protegida para evitar erros de JS
+          const indexDeQuemPassou = ((i - sala.sentido) % sala.jogadores.length + sala.jogadores.length) % sala.jogadores.length;
           jogador.mao = maosAntigas[indexDeQuemPassou];
         });
         io.to(codigoSala).emit('erro', `🌪️ ${jogadorAtual.nome} girou as cartas da mesa!`);
@@ -229,15 +275,15 @@ io.on('connection', (socket) => {
       sala.comprasAcumuladas += (4 * cartas.length);
     }
 
-    if (valorCarta === '9') {
-      sala.eventoBateMesa = { ativo: true, jogadoresQueBateram: [], punicao: cartas.length };
+    // === GATILHO DA REGRA DO 9 ===
+    if (ultimaCartaJogada.valor === '9') {
+      const qtdNoves = cartas.filter(c => c.valor === '9').length; // Conta quantos 9 foram jogados na leva
+      sala.eventoBateMesa = { ativo: true, jogadoresQueBateram: [], punicao: qtdNoves };
       io.to(codigoSala).emit('iniciar_evento_nove');
     }
 
-    sala.turnoIndex = (sala.turnoIndex + (pulos * sala.sentido)) % sala.jogadores.length;
-    if (sala.turnoIndex < 0) {
-      sala.turnoIndex += sala.jogadores.length; 
-    }
+    // === CORREÇÃO DO BUG DE PULAR A VEZ (Fórmula à prova de falhas) ===
+    sala.turnoIndex = ((sala.turnoIndex + (pulos * sala.sentido)) % sala.jogadores.length + sala.jogadores.length) % sala.jogadores.length;
 
     sala.comprouNestaRodada = false;
 
@@ -277,7 +323,7 @@ io.on('connection', (socket) => {
     });
 
     if (denunciouAlguem) {
-      io.to(codigoSala).emit('erro', `🚨 O jogador ${nomeInfrator} esqueceu de gritar UNO e comprou 1 carta!`);
+      io.to(codigoSala).emit('erro', `🚨 O jogador ${nomeInfrator} esqueceu de gritar KAOS e comprou 1 carta!`);
       sala.jogadores.forEach(j => {
         io.to(j.id).emit('estado_atualizado', {
           minhaMao: j.mao,
@@ -294,9 +340,9 @@ io.on('connection', (socket) => {
 
     if (eu.mao.length <= 2) {
       eu.disseUno = true;
-      io.to(codigoSala).emit('erro', `🗣️ ${eu.nome} GRITOU UNO!`);
+      io.to(codigoSala).emit('erro', `🗣️ ${eu.nome} GRITOU KAOS!`);
     } else {
-      socket.emit('erro', `Ninguém para denunciar! Você só pode gritar UNO tendo 1 ou 2 cartas.`);
+      socket.emit('erro', `Ninguém para denunciar! Você só pode gritar KAOS tendo 1 ou 2 cartas.`);
     }
   });
 
@@ -319,7 +365,8 @@ io.on('connection', (socket) => {
 
     if (sala.comprasAcumuladas > 0) {
       sala.comprasAcumuladas = 0;
-      sala.turnoIndex = (sala.turnoIndex + sala.sentido + sala.jogadores.length) % sala.jogadores.length;
+      // Bugfix
+      sala.turnoIndex = ((sala.turnoIndex + sala.sentido) % sala.jogadores.length + sala.jogadores.length) % sala.jogadores.length;
     } else {
       sala.comprouNestaRodada = true;
     }
@@ -345,7 +392,8 @@ io.on('connection', (socket) => {
     if (jogadorAtual.id !== socket.id) return;
     if (!sala.comprouNestaRodada) return; 
 
-    sala.turnoIndex = (sala.turnoIndex + 1) % sala.jogadores.length;
+    // === CORREÇÃO DO BUG DE PULAR A VEZ (Fórmula à prova de falhas) ===
+    sala.turnoIndex = ((sala.turnoIndex + sala.sentido) % sala.jogadores.length + sala.jogadores.length) % sala.jogadores.length;
     sala.comprouNestaRodada = false;
 
     sala.jogadores.forEach(jogador => {
@@ -397,8 +445,15 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Escuta ativa para quando alguém sair via botão ou fechar o navegador
+  socket.on('sair_sala', (codigoSala) => {
+    socket.leave(codigoSala);
+    removerJogador(socket.id);
+  });
+
   socket.on('disconnect', () => {
     console.log(`🔴 Jogador desconectado: ${socket.id}`);
+    removerJogador(socket.id);
   });
 });
 
