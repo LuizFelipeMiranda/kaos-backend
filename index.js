@@ -10,7 +10,7 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "*", 
+    origin: ["https://kaos-frontend-mocha.vercel.app", "http://localhost:5173"], 
     methods: ["GET", "POST"]
   }
 });
@@ -402,6 +402,7 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(3001, () => {
-  console.log('Servidor rodando na porta 3001!');
+const porta = process.env.PORT || 3001;
+server.listen(porta, () => {
+  console.log(`Servidor rodando na porta ${porta}!`);
 });
