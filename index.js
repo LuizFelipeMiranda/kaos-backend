@@ -10,7 +10,7 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: ["https://kaos-frontend-mocha.vercel.app", "http://localhost:5173"], 
+    origin: ["https://kaos-card-game.vercel.app/", "http://localhost:5173"], 
     methods: ["GET", "POST"]
   }
 });
