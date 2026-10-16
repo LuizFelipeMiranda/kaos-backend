@@ -51,7 +51,7 @@ function garantirBaralho(sala, qtdNecessaria) {
       }
       sala.baralho = cartasParaEmbaralhar.concat(sala.baralho);
       sala.mesa = [topo];
-      io.to(sala.id).emit('erro', '🔄 O monte acabou! As cartas da mesa foram reembaralhadas.');
+      io.to(sala.id).emit('erro', 'Aviso: O monte acabou! As cartas da mesa foram reembaralhadas.');
     }
   }
 }
@@ -79,10 +79,6 @@ const obterInfoJogadores = (sala) => {
   }));
 };
 
-// ==========================================
-// MÁQUINA DE ESTADOS E SISTEMA DE BOT (IA)
-// ==========================================
-
 function emitirAtualizacao(sala) {
   sala.jogadores.forEach(jogador => {
     io.to(jogador.id).emit('estado_atualizado', {
@@ -96,7 +92,6 @@ function emitirAtualizacao(sala) {
     });
   });
 
-  // IA: Analisa se algum humano esqueceu de gritar KAOS para denunciar
   const humanoVulneravel = sala.jogadores.find(j => j.mao.length === 1 && !j.disseUno && !j.isBot);
   const algumBot = sala.jogadores.find(j => j.isBot);
   if (humanoVulneravel && algumBot) {
@@ -104,10 +99,10 @@ function emitirAtualizacao(sala) {
       if (salas[sala.id] && salas[sala.id].status === 'jogando') {
         const alvoAindaVulneravel = salas[sala.id].jogadores.find(j => j.id === humanoVulneravel.id);
         if (alvoAindaVulneravel && alvoAindaVulneravel.mao.length === 1 && !alvoAindaVulneravel.disseUno) {
-          efetuarKaos(salas[sala.id], algumBot); // Bot Dedo Duro!
+          efetuarKaos(salas[sala.id], algumBot); 
         }
       }
-    }, 1500); // Dá 1.5 segundos pro humano perceber antes de denunciar
+    }, 1500); 
   }
 
   agendarTurnoBot(sala);
@@ -120,7 +115,6 @@ function agendarTurnoBot(sala) {
 
   if (sala.botTimer) clearTimeout(sala.botTimer);
   
-  // O Bot "pensa" por 1.5 a 2.5 segundos
   const tempoPensamento = Math.floor(Math.random() * 1000) + 1500;
   sala.botTimer = setTimeout(() => executarTurnoBot(sala, jogadorAtual), tempoPensamento);
 }
@@ -136,7 +130,6 @@ function executarTurnoBot(sala, bot) {
   const cartaMesa = sala.mesa[sala.mesa.length - 1];
   let cartasValidas = [];
 
-  // === CORREÇÃO: IA SÓ DEFENDE SE A COR COMBINAR COM A MESA ===
   if (sala.comprasAcumuladas > 0) {
     cartasValidas = bot.mao.filter(c => {
       const combina = c.cor === 'preto' || c.cor === cartaMesa.cor || c.valor === cartaMesa.valor;
@@ -172,7 +165,7 @@ function executarTurnoBot(sala, bot) {
 
     if (bot.mao.length - combo.length === 1) {
       bot.disseUno = true;
-      io.to(sala.id).emit('erro', `🗣️ ${bot.nome} GRITOU KAOS!`);
+      io.to(sala.id).emit('erro', `${bot.nome} GRITOU KAOS!`);
     }
 
     efetuarJogada(sala, bot, combo, novaCor, alvoTroca);
@@ -180,10 +173,6 @@ function executarTurnoBot(sala, bot) {
     efetuarCompra(sala, bot);
   }
 }
-
-// ==========================================
-// FUNÇÕES DE AÇÃO CORE (Usadas por Humanos e Bots)
-// ==========================================
 
 function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
   if (!sala || sala.status !== 'jogando' || !jogador || sala.jogadores[sala.turnoIndex].id !== jogador.id) return;
@@ -219,21 +208,21 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
   const temZero = cartas.some(c => c.valor === '0');
   if (temZero && alvoTroca) {
     if (alvoTroca === 'ninguem') {
-      io.to(sala.id).emit('erro', `🙊 ${jogador.nome} decidiu manter suas cartas!`);
+      io.to(sala.id).emit('erro', `O jogador ${jogador.nome} decidiu manter as suas cartas!`);
     } else if (alvoTroca === 'todos') {
       const maosAntigas = sala.jogadores.map(j => [...j.mao]);
       sala.jogadores.forEach((j, i) => {
         const idx = ((i - sala.sentido) % sala.jogadores.length + sala.jogadores.length) % sala.jogadores.length;
         j.mao = maosAntigas[idx];
       });
-      io.to(sala.id).emit('erro', `🌪️ ${jogador.nome} girou as cartas da mesa!`);
+      io.to(sala.id).emit('erro', `Aviso: O jogador ${jogador.nome} rodou as mãos de todos os jogadores!`);
     } else {
       const jogadorAlvo = sala.jogadores.find(j => j.id === alvoTroca);
       if (jogadorAlvo) {
         const maoTemp = [...jogador.mao];
         jogador.mao = [...jogadorAlvo.mao];
         jogadorAlvo.mao = maoTemp;
-        io.to(sala.id).emit('erro', `🔄 ${jogador.nome} trocou as cartas com ${jogadorAlvo.nome}!`);
+        io.to(sala.id).emit('erro', `Aviso: O jogador ${jogador.nome} trocou as cartas com ${jogadorAlvo.nome}!`);
       }
     }
   }
@@ -329,26 +318,21 @@ function efetuarKaos(sala, denunciante) {
   });
 
   if (denunciouAlguem) {
-    io.to(sala.id).emit('erro', `🚨 O jogador ${nomeInfrator} esqueceu de gritar KAOS e comprou 1 carta!`);
+    io.to(sala.id).emit('erro', `Aviso: O jogador ${nomeInfrator} esqueceu-se de gritar KAOS e comprou 1 carta!`);
     emitirAtualizacao(sala);
     return; 
   }
 
-  // Permite ao humano pressionar o botão tendo 1 ou 2 cartas na mão (já que ele pode apertar antes ou depois de jogar)
   if (denunciante.mao.length <= 2) {
     denunciante.disseUno = true;
-    io.to(sala.id).emit('erro', `🗣️ ${denunciante.nome} GRITOU KAOS!`);
+    io.to(sala.id).emit('erro', `${denunciante.nome} GRITOU KAOS!`);
   } else {
     io.to(denunciante.id).emit('erro', `Ninguém para denunciar!`);
   }
 }
 
-// ==========================================
-// CONEXÃO DE SOCKETS (Rotas)
-// ==========================================
-
 io.on('connection', (socket) => {
-  console.log(`🟢 Um jogador se conectou! ID: ${socket.id}`);
+  console.log(`Um jogador conectou-se! ID: ${socket.id}`);
 
   const removerJogador = (socketId) => {
     for (const codigoSala in salas) {
@@ -364,7 +348,7 @@ io.on('connection', (socket) => {
           delete salas[codigoSala]; 
         } else {
           if (sala.status === 'jogando') {
-            io.to(codigoSala).emit('erro', `⚠️ ${nomeRemovido} saiu da partida!`);
+            io.to(codigoSala).emit('erro', `Aviso: ${nomeRemovido} saiu da partida!`);
             if (index < sala.turnoIndex) sala.turnoIndex -= 1; 
             else if (index === sala.turnoIndex && sala.sentido === -1) sala.turnoIndex -= 1;
             
@@ -407,9 +391,9 @@ io.on('connection', (socket) => {
       
       if (sala.jogadores.length === 1) {
         const nomesBots = [
-          { nome: '[BOT] ASA', avatar: 'ASA' },
-          { nome: '[BOT] BOTAS', avatar: 'BOTAS' },
-          { nome: '[BOT] CAIM', avatar: 'CAIM' }
+          { nome: '[BOT] T-800', avatar: 't800' },
+          { nome: '[BOT] GLaDOS', avatar: 'glados' },
+          { nome: '[BOT] HAL 9000', avatar: 'hal9000' }
         ];
         nomesBots.forEach((b, i) => {
           sala.jogadores.push({
@@ -491,12 +475,12 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log(`🔴 Jogador desconectado: ${socket.id}`);
+    console.log(`Jogador desconectado: ${socket.id}`);
     removerJogador(socket.id);
   });
 });
 
 const porta = process.env.PORT || 3001;
 server.listen(porta, () => {
-  console.log(`Servidor rodando na porta ${porta}!`);
+  console.log(`Servidor a correr na porta ${porta}!`);
 });
