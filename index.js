@@ -136,8 +136,12 @@ function executarTurnoBot(sala, bot) {
   const cartaMesa = sala.mesa[sala.mesa.length - 1];
   let cartasValidas = [];
 
+  // === CORREÇÃO: IA SÓ DEFENDE SE A COR COMBINAR COM A MESA ===
   if (sala.comprasAcumuladas > 0) {
-    cartasValidas = bot.mao.filter(c => c.valor === '+2' || c.valor === '+4');
+    cartasValidas = bot.mao.filter(c => {
+      const combina = c.cor === 'preto' || c.cor === cartaMesa.cor || c.valor === cartaMesa.valor;
+      return (c.valor === '+2' || c.valor === '+4') && combina;
+    });
   } else {
     cartasValidas = bot.mao.filter(c => c.cor === 'preto' || c.cor === cartaMesa.cor || c.valor === cartaMesa.valor);
   }
@@ -166,7 +170,6 @@ function executarTurnoBot(sala, bot) {
       alvoTroca = oponentes[0].mao.length < bot.mao.length ? oponentes[0].id : 'ninguem';
     }
 
-    // O bot agora só grita KAOS se for ficar com exatamente 1 carta
     if (bot.mao.length - combo.length === 1) {
       bot.disseUno = true;
       io.to(sala.id).emit('erro', `🗣️ ${bot.nome} GRITOU KAOS!`);
