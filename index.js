@@ -407,9 +407,9 @@ io.on('connection', (socket) => {
       
       if (sala.jogadores.length === 1) {
         const nomesBots = [
-          { nome: '🤖 T-800', avatar: 't800' },
-          { nome: '🤖 GLaDOS', avatar: 'glados' },
-          { nome: '🤖 HAL 9000', avatar: 'hal9000' }
+          { nome: '[BOT] ASA', avatar: 'ASA' },
+          { nome: '[BOT] BOTAS', avatar: 'BOTAS' },
+          { nome: '[BOT] CAIM', avatar: 'CAIM' }
         ];
         nomesBots.forEach((b, i) => {
           sala.jogadores.push({
