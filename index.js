@@ -128,7 +128,6 @@ function agendarTurnoBot(sala) {
 function executarTurnoBot(sala, bot) {
   if (sala.status !== 'jogando' || sala.jogadores[sala.turnoIndex].id !== bot.id) return;
 
-  // Se o bot acabou de comprar, ele obrigatoriamente passa a vez
   if (sala.comprouNestaRodada) {
     efetuarPassagem(sala, bot);
     return;
@@ -144,18 +143,15 @@ function executarTurnoBot(sala, bot) {
   }
 
   if (cartasValidas.length > 0) {
-    // IA Estratégica: Prioriza gastar cartas normais e guardar coringas pro fim
     cartasValidas.sort((a, b) => (a.cor === 'preto' ? 1 : -1));
     const escolhida = cartasValidas[0];
     
-    // IA Combo: Se tiver cartas do mesmo valor, joga todas juntas para limpar a mão
     let combo = [escolhida];
     if (escolhida.cor !== 'preto' && escolhida.valor !== '+2') {
       const iguais = bot.mao.filter(c => c.valor === escolhida.valor && c.id !== escolhida.id && c.cor !== 'preto');
       combo = [escolhida, ...iguais];
     }
 
-    // IA Escolha de Cor: Se for coringa, escolhe a cor que mais tem na mão
     let novaCor = null;
     if (escolhida.cor === 'preto') {
       const contagem = { 'vermelho': 0, 'azul': 0, 'verde': 0, 'amarelo': 0 };
@@ -163,24 +159,21 @@ function executarTurnoBot(sala, bot) {
       novaCor = Object.keys(contagem).reduce((a, b) => contagem[a] > contagem[b] ? a : b);
     }
 
-    // IA Agressiva do Zero: Rouba as cartas de quem tiver a menor mão
     let alvoTroca = null;
     if (escolhida.valor === '0') {
       let oponentes = sala.jogadores.filter(j => j.id !== bot.id);
       oponentes.sort((a, b) => a.mao.length - b.mao.length);
-      // Se o cara estiver ganhando de mim, eu roubo ele. Se eu estiver ganhando, passo (ninguem)
       alvoTroca = oponentes[0].mao.length < bot.mao.length ? oponentes[0].id : 'ninguem';
     }
 
-    // IA Grita KAOS perfeitamente (não erra)
-    if (bot.mao.length - combo.length > 0 && bot.mao.length - combo.length <= 2) {
+    // O bot agora só grita KAOS se for ficar com exatamente 1 carta
+    if (bot.mao.length - combo.length === 1) {
       bot.disseUno = true;
       io.to(sala.id).emit('erro', `🗣️ ${bot.nome} GRITOU KAOS!`);
     }
 
     efetuarJogada(sala, bot, combo, novaCor, alvoTroca);
   } else {
-    // Não tem nada, compra carta e programa passar a vez
     efetuarCompra(sala, bot);
   }
 }
@@ -245,7 +238,6 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
   if (cartas[0].valor === '+2') sala.comprasAcumuladas += (2 * cartas.length);
   else if (cartas[0].valor === '+4') sala.comprasAcumuladas += (4 * cartas.length);
 
-  // REGRA DO 9 (Dispara o evento para humanos e programa os bots)
   if (ultimaCartaJogada.valor === '9') {
     const qtdNoves = cartas.filter(c => c.valor === '9').length; 
     sala.eventoBateMesa = { ativo: true, jogadoresQueBateram: [], punicao: qtdNoves };
@@ -253,7 +245,6 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
     
     sala.jogadores.forEach(j => {
       if (j.isBot) {
-        // Bots batem na mesa entre 1 e 3.5 segundos! Fique atento!
         const reflexoBot = Math.floor(Math.random() * 2500) + 1000;
         setTimeout(() => efetuarBaterMesa(sala, j), reflexoBot);
       }
@@ -340,6 +331,7 @@ function efetuarKaos(sala, denunciante) {
     return; 
   }
 
+  // Permite ao humano pressionar o botão tendo 1 ou 2 cartas na mão (já que ele pode apertar antes ou depois de jogar)
   if (denunciante.mao.length <= 2) {
     denunciante.disseUno = true;
     io.to(sala.id).emit('erro', `🗣️ ${denunciante.nome} GRITOU KAOS!`);
@@ -364,7 +356,6 @@ io.on('connection', (socket) => {
         const nomeRemovido = sala.jogadores[index].nome;
         sala.jogadores.splice(index, 1);
         
-        // Se a sala ficar vazia, ou só sobrar Bots na sala, destroi a sala
         if (sala.jogadores.length === 0 || sala.jogadores.every(j => j.isBot)) {
           if (sala.botTimer) clearTimeout(sala.botTimer);
           delete salas[codigoSala]; 
@@ -411,12 +402,11 @@ io.on('connection', (socket) => {
     const sala = salas[codigoSala];
     if (sala && sala.jogadores[0].id === socket.id) {
       
-      // === PREENCHIMENTO AUTOMÁTICO DE BOTS ===
       if (sala.jogadores.length === 1) {
         const nomesBots = [
-          { nome: '[BOT] ASAFE', avatar: 'ASAFE' },
-          { nome: '[BOT] BOTAS', avatar: 'BOTAS' },
-          { nome: '[BOT] CAIM', avatar: 'CAIM' }
+          { nome: '🤖 T-800', avatar: 't800' },
+          { nome: '🤖 GLaDOS', avatar: 'glados' },
+          { nome: '🤖 HAL 9000', avatar: 'hal9000' }
         ];
         nomesBots.forEach((b, i) => {
           sala.jogadores.push({
@@ -458,7 +448,6 @@ io.on('connection', (socket) => {
           });
         }
       });
-      // Inicia a verificação pra ver se o primeiro turno já é de um bot
       agendarTurnoBot(sala);
     }
   });
