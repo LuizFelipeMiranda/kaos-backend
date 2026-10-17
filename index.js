@@ -58,14 +58,22 @@ function garantirBaralho(sala, qtdNecessaria) {
 
 function validarSequencia(cartas) {
   if (cartas.length === 1) return true;
+  
+  // Mesmos valores (Ex: jogar 3 cartas de valor '5' ou três cartas 'bloqueio')
   const mesmoValor = cartas.every(c => c.valor === cartas[0].valor);
   if (mesmoValor) return true;
+  
+  // Sequência Numérica da MESMA COR
   const todosSaoNumeros = cartas.every(c => !isNaN(c.valor));
   if (todosSaoNumeros) {
     const mesmaCor = cartas.every(c => c.cor === cartas[0].cor);
     if (mesmaCor) {
+      // Verifica se é crescente (ex: 1, 2, 3)
       const crescente = cartas.every((c, i) => i === 0 ? true : parseInt(c.valor) === parseInt(cartas[i - 1].valor) + 1);
-      if (crescente) return true;
+      // Verifica se é decrescente (ex: 3, 2, 1)
+      const decrescente = cartas.every((c, i) => i === 0 ? true : parseInt(c.valor) === parseInt(cartas[i - 1].valor) - 1);
+      
+      if (crescente || decrescente) return true;
     }
   }
   return false;
@@ -111,6 +119,11 @@ function emitirAtualizacao(sala) {
   if (sala.botTimer) clearTimeout(sala.botTimer);
   if (sala.turnoTimer) clearTimeout(sala.turnoTimer);
 
+  // Se o evento da mesa estiver ativo, os relógios não começam até acabar!
+  if (sala.eventoBateMesa && sala.eventoBateMesa.ativo) {
+    return;
+  }
+
   agendarTurnoBot(sala);
   agendarTurnoHumano(sala);
 }
@@ -134,7 +147,7 @@ function agendarTurnoHumano(sala) {
 
   sala.turnoTimer = setTimeout(() => {
     estourarTempo(sala, jogadorAtual);
-  }, 15000); 
+  }, 20000); // <-- Tempo de turno agora é de 20 Segundos
 }
 
 function agendarTurnoBot(sala) {
@@ -142,7 +155,7 @@ function agendarTurnoBot(sala) {
   const jogadorAtual = sala.jogadores[sala.turnoIndex];
   if (!jogadorAtual || !jogadorAtual.isBot) return;
   
-  const tempoPensamento = Math.floor(Math.random() * 1000) + 1500;
+  const tempoPensamento = Math.floor(Math.random() * 1500) + 1500;
   sala.botTimer = setTimeout(() => executarTurnoBot(sala, jogadorAtual), tempoPensamento);
 }
 
@@ -203,6 +216,7 @@ function executarTurnoBot(sala, bot) {
 
 function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
   if (!sala || sala.status !== 'jogando' || !jogador || sala.jogadores[sala.turnoIndex].id !== jogador.id) return;
+  if (sala.eventoBateMesa && sala.eventoBateMesa.ativo) return io.to(jogador.id).emit('erro', 'Aguarde o fim do evento do 9!');
   if (!cartas || cartas.length === 0) return;
 
   const cartaMesa = sala.mesa[sala.mesa.length - 1];
@@ -264,7 +278,7 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
     
     sala.jogadores.forEach(j => {
       if (j.isBot) {
-        const reflexoBot = Math.floor(Math.random() * 2500) + 1000;
+        const reflexoBot = Math.floor(Math.random() * 2500) + 1500; // Bots demoram entre 1.5s e 4s para bater
         setTimeout(() => efetuarBaterMesa(sala, j), reflexoBot);
       }
     });
@@ -287,6 +301,7 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
 
 function efetuarCompra(sala, jogador) {
   if (!sala || sala.status !== 'jogando' || !jogador || sala.jogadores[sala.turnoIndex].id !== jogador.id || sala.comprouNestaRodada) return;
+  if (sala.eventoBateMesa && sala.eventoBateMesa.ativo) return;
   
   const qtdParaComprar = sala.comprasAcumuladas > 0 ? sala.comprasAcumuladas : 1;
   garantirBaralho(sala, qtdParaComprar);
@@ -307,6 +322,8 @@ function efetuarCompra(sala, jogador) {
 
 function efetuarPassagem(sala, jogador) {
   if (!sala || sala.status !== 'jogando' || !jogador || sala.jogadores[sala.turnoIndex].id !== jogador.id || !sala.comprouNestaRodada) return;
+  if (sala.eventoBateMesa && sala.eventoBateMesa.ativo) return;
+
   sala.turnoIndex = ((sala.turnoIndex + sala.sentido) % sala.jogadores.length + sala.jogadores.length) % sala.jogadores.length;
   sala.comprouNestaRodada = false;
   emitirAtualizacao(sala);
@@ -319,6 +336,7 @@ function efetuarBaterMesa(sala, jogador) {
   sala.eventoBateMesa.jogadoresQueBateram.push(jogador.id);
   const bateram = sala.eventoBateMesa.jogadoresQueBateram.length;
 
+  // Se todos menos 1 bateram, aplica a punição e RETOMA O JOGO!
   if (bateram === sala.jogadores.length - 1) {
     const lerdinho = sala.jogadores.find(j => !sala.eventoBateMesa.jogadoresQueBateram.includes(j.id));
     if (lerdinho) {
@@ -326,9 +344,11 @@ function efetuarBaterMesa(sala, jogador) {
       for (let i = 0; i < sala.eventoBateMesa.punicao; i++) {
         if (sala.baralho.length > 0) lerdinho.mao.push(sala.baralho.pop());
       }
-      sala.eventoBateMesa.ativo = false;
+      sala.eventoBateMesa.ativo = false; // Desbloqueia o jogo
       io.to(sala.id).emit('fim_evento_nove', { perdedor: lerdinho.nome, cartasCompradas: sala.eventoBateMesa.punicao });
-      emitirAtualizacao(sala);
+      
+      // Quando o evento acaba, dispara o cronómetro para a pessoa que é o atual turno
+      emitirAtualizacao(sala); 
     }
   }
 }
@@ -434,14 +454,12 @@ io.on('connection', (socket) => {
         io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
       }
 
-      // === SISTEMA DE SORTEIO DO PRIMEIRO JOGADOR ===
       sala.status = 'sorteando';
       const sorteadoIndex = Math.floor(Math.random() * sala.jogadores.length);
-      sala.turnoIndex = sorteadoIndex; // O Jogador escolhido
+      sala.turnoIndex = sorteadoIndex; 
       
       io.to(codigoSala).emit('sorteando_primeiro_jogador', sala.jogadores[sorteadoIndex].id);
 
-      // Aguarda 3,5 segundos para o FrontEnd exibir a roleta antes de enviar as cartas
       setTimeout(() => {
         if (!salas[codigoSala]) return;
         
@@ -449,6 +467,7 @@ io.on('connection', (socket) => {
         sala.baralho = criarBaralho();
         sala.mesa = [];
 
+        // Cada jogador recebe 7 cartas
         sala.jogadores.forEach(jogador => {
           jogador.mao = sala.baralho.splice(0, 7);
           jogador.disseUno = false; 
