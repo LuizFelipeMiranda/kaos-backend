@@ -80,6 +80,8 @@ const obterInfoJogadores = (sala) => {
 };
 
 function emitirAtualizacao(sala) {
+  sala.inicioTurnoTimeStamp = Date.now(); // Grava a hora exata do turno
+
   sala.jogadores.forEach(jogador => {
     io.to(jogador.id).emit('estado_atualizado', {
       minhaMao: jogador.mao,
@@ -88,7 +90,8 @@ function emitirAtualizacao(sala) {
       sentido: sala.sentido,
       comprouNestaRodada: sala.comprouNestaRodada,
       comprasAcumuladas: sala.comprasAcumuladas,
-      infoJogadores: obterInfoJogadores(sala)
+      infoJogadores: obterInfoJogadores(sala),
+      inicioTurno: sala.inicioTurnoTimeStamp // Envia hora para sincronizar o front
     });
   });
 
@@ -105,15 +108,41 @@ function emitirAtualizacao(sala) {
     }, 1500); 
   }
 
+  // Limpa tempos anteriores para evitar pulos
+  if (sala.botTimer) clearTimeout(sala.botTimer);
+  if (sala.turnoTimer) clearTimeout(sala.turnoTimer);
+
   agendarTurnoBot(sala);
+  agendarTurnoHumano(sala);
+}
+
+// === LÓGICA DO TEMPO DE TURNO ===
+function estourarTempo(sala, jogador) {
+  if (sala.status !== 'jogando' || sala.jogadores[sala.turnoIndex].id !== jogador.id) return;
+  
+  if (sala.comprasAcumuladas > 0) {
+    efetuarCompra(sala, jogador);
+  } else {
+    if (!sala.comprouNestaRodada) efetuarCompra(sala, jogador);
+    efetuarPassagem(sala, jogador);
+  }
+  io.to(sala.id).emit('erro', `⌛ O tempo de ${jogador.nome} esgotou-se!`);
+}
+
+function agendarTurnoHumano(sala) {
+  if (sala.status !== 'jogando') return;
+  const jogadorAtual = sala.jogadores[sala.turnoIndex];
+  if (!jogadorAtual || jogadorAtual.isBot) return;
+
+  sala.turnoTimer = setTimeout(() => {
+    estourarTempo(sala, jogadorAtual);
+  }, 15000); // 15 Segundos por Turno
 }
 
 function agendarTurnoBot(sala) {
   if (sala.status !== 'jogando') return;
   const jogadorAtual = sala.jogadores[sala.turnoIndex];
   if (!jogadorAtual || !jogadorAtual.isBot) return;
-
-  if (sala.botTimer) clearTimeout(sala.botTimer);
   
   const tempoPensamento = Math.floor(Math.random() * 1000) + 1500;
   sala.botTimer = setTimeout(() => executarTurnoBot(sala, jogadorAtual), tempoPensamento);
@@ -250,6 +279,7 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
     sala.status = 'finalizado';
     jogador.vitorias = (jogador.vitorias || 0) + 1; // ADICIONA A VITÓRIA AO JOGADOR
     if(sala.botTimer) clearTimeout(sala.botTimer);
+    if(sala.turnoTimer) clearTimeout(sala.turnoTimer);
     io.to(sala.id).emit('atualizar_jogadores', obterInfoJogadores(sala)); // ATUALIZA O LOBBY
     return io.to(sala.id).emit('fim_de_jogo', jogador.nome);
   }
@@ -347,6 +377,7 @@ io.on('connection', (socket) => {
         
         if (sala.jogadores.length === 0 || sala.jogadores.every(j => j.isBot)) {
           if (sala.botTimer) clearTimeout(sala.botTimer);
+          if (sala.turnoTimer) clearTimeout(sala.turnoTimer);
           delete salas[codigoSala]; 
         } else {
           if (sala.status === 'jogando') {
@@ -423,6 +454,7 @@ io.on('connection', (socket) => {
       sala.comprouNestaRodada = false;
       sala.comprasAcumuladas = 0;
       sala.eventoBateMesa = { ativo: false, jogadoresQueBateram: [], punicao: 0 };
+      sala.inicioTurnoTimeStamp = Date.now(); // Marca o início
 
       sala.jogadores.forEach(jogador => {
         if (!jogador.isBot) {
@@ -433,11 +465,13 @@ io.on('connection', (socket) => {
             sentido: sala.sentido,
             comprouNestaRodada: sala.comprouNestaRodada,
             comprasAcumuladas: sala.comprasAcumuladas,
-            infoJogadores: obterInfoJogadores(sala)
+            infoJogadores: obterInfoJogadores(sala),
+            inicioTurno: sala.inicioTurnoTimeStamp
           });
         }
       });
       agendarTurnoBot(sala);
+      agendarTurnoHumano(sala);
     }
   });
 
