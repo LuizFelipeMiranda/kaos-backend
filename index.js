@@ -75,7 +75,7 @@ const salas = {};
 
 const obterInfoJogadores = (sala) => {
   return sala.jogadores.map(j => ({
-    id: j.id, nome: j.nome, avatar: j.avatar, qtdCartas: j.mao ? j.mao.length : 0
+    id: j.id, nome: j.nome, avatar: j.avatar, qtdCartas: j.mao ? j.mao.length : 0, vitorias: j.vitorias || 0
   }));
 };
 
@@ -248,7 +248,9 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
 
   if (jogador.mao.length === 0) {
     sala.status = 'finalizado';
+    jogador.vitorias = (jogador.vitorias || 0) + 1; // ADICIONA A VITÓRIA AO JOGADOR
     if(sala.botTimer) clearTimeout(sala.botTimer);
+    io.to(sala.id).emit('atualizar_jogadores', obterInfoJogadores(sala)); // ATUALIZA O LOBBY
     return io.to(sala.id).emit('fim_de_jogo', jogador.nome);
   }
 
@@ -365,7 +367,7 @@ io.on('connection', (socket) => {
 
   socket.on('criar_sala', ({ nomeJogador, avatar }) => {
     const codigoSala = Math.floor(1000 + Math.random() * 9000).toString();
-    salas[codigoSala] = { id: codigoSala, status: 'esperando', jogadores: [{ id: socket.id, nome: nomeJogador, avatar, isBot: false }] };
+    salas[codigoSala] = { id: codigoSala, status: 'esperando', jogadores: [{ id: socket.id, nome: nomeJogador, avatar, isBot: false, vitorias: 0 }] };
     socket.join(codigoSala);
     socket.emit('sala_criada', codigoSala);
   });
@@ -376,7 +378,7 @@ io.on('connection', (socket) => {
       if (sala.status === 'jogando') return socket.emit('erro', 'A partida já começou!');
       if (sala.jogadores.length >= 6) return socket.emit('erro', 'A sala está cheia.');
       
-      sala.jogadores.push({ id: socket.id, nome: nomeJogador, avatar, isBot: false });
+      sala.jogadores.push({ id: socket.id, nome: nomeJogador, avatar, isBot: false, vitorias: 0 });
       socket.join(codigoSala);
       io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
       socket.emit('entrou_na_sala', codigoSala);
@@ -397,7 +399,7 @@ io.on('connection', (socket) => {
         ];
         nomesBots.forEach((b, i) => {
           sala.jogadores.push({
-            id: `bot_${Date.now()}_${i}`, nome: b.nome, avatar: b.avatar, isBot: true, mao: [], disseUno: false
+            id: `bot_${Date.now()}_${i}`, nome: b.nome, avatar: b.avatar, isBot: true, mao: [], disseUno: false, vitorias: 0
           });
         });
         io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
