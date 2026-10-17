@@ -80,7 +80,7 @@ const obterInfoJogadores = (sala) => {
 };
 
 function emitirAtualizacao(sala) {
-  sala.inicioTurnoTimeStamp = Date.now(); // Grava a hora exata do turno
+  sala.inicioTurnoTimeStamp = Date.now(); 
 
   sala.jogadores.forEach(jogador => {
     io.to(jogador.id).emit('estado_atualizado', {
@@ -91,7 +91,7 @@ function emitirAtualizacao(sala) {
       comprouNestaRodada: sala.comprouNestaRodada,
       comprasAcumuladas: sala.comprasAcumuladas,
       infoJogadores: obterInfoJogadores(sala),
-      inicioTurno: sala.inicioTurnoTimeStamp // Envia hora para sincronizar o front
+      inicioTurno: sala.inicioTurnoTimeStamp 
     });
   });
 
@@ -108,7 +108,6 @@ function emitirAtualizacao(sala) {
     }, 1500); 
   }
 
-  // Limpa tempos anteriores para evitar pulos
   if (sala.botTimer) clearTimeout(sala.botTimer);
   if (sala.turnoTimer) clearTimeout(sala.turnoTimer);
 
@@ -116,7 +115,6 @@ function emitirAtualizacao(sala) {
   agendarTurnoHumano(sala);
 }
 
-// === LÓGICA DO TEMPO DE TURNO ===
 function estourarTempo(sala, jogador) {
   if (sala.status !== 'jogando' || sala.jogadores[sala.turnoIndex].id !== jogador.id) return;
   
@@ -136,7 +134,7 @@ function agendarTurnoHumano(sala) {
 
   sala.turnoTimer = setTimeout(() => {
     estourarTempo(sala, jogadorAtual);
-  }, 15000); // 15 Segundos por Turno
+  }, 15000); 
 }
 
 function agendarTurnoBot(sala) {
@@ -277,10 +275,10 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
 
   if (jogador.mao.length === 0) {
     sala.status = 'finalizado';
-    jogador.vitorias = (jogador.vitorias || 0) + 1; // ADICIONA A VITÓRIA AO JOGADOR
+    jogador.vitorias = (jogador.vitorias || 0) + 1; 
     if(sala.botTimer) clearTimeout(sala.botTimer);
     if(sala.turnoTimer) clearTimeout(sala.turnoTimer);
-    io.to(sala.id).emit('atualizar_jogadores', obterInfoJogadores(sala)); // ATUALIZA O LOBBY
+    io.to(sala.id).emit('atualizar_jogadores', obterInfoJogadores(sala)); 
     return io.to(sala.id).emit('fim_de_jogo', jogador.nome);
   }
 
@@ -406,7 +404,7 @@ io.on('connection', (socket) => {
   socket.on('entrar_sala', ({ codigoSala, nomeJogador, avatar }) => {
     const sala = salas[codigoSala];
     if (sala) {
-      if (sala.status === 'jogando') return socket.emit('erro', 'A partida já começou!');
+      if (sala.status === 'jogando' || sala.status === 'sorteando') return socket.emit('erro', 'A partida já começou!');
       if (sala.jogadores.length >= 6) return socket.emit('erro', 'A sala está cheia.');
       
       sala.jogadores.push({ id: socket.id, nome: nomeJogador, avatar, isBot: false, vitorias: 0 });
@@ -420,7 +418,7 @@ io.on('connection', (socket) => {
 
   socket.on('iniciar_partida', (codigoSala) => {
     const sala = salas[codigoSala];
-    if (sala && sala.jogadores[0].id === socket.id) {
+    if (sala && sala.jogadores[0].id === socket.id && sala.status !== 'sorteando' && sala.status !== 'jogando') {
       
       if (sala.jogadores.length === 1) {
         const nomesBots = [
@@ -436,42 +434,53 @@ io.on('connection', (socket) => {
         io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
       }
 
-      sala.status = 'jogando';
-      sala.baralho = criarBaralho();
-      sala.mesa = [];
-
-      sala.jogadores.forEach(jogador => {
-        jogador.mao = sala.baralho.splice(0, 7);
-        jogador.disseUno = false; 
-      });
-
-      const indexCartaValida = sala.baralho.findIndex(c => !isNaN(c.valor) && c.cor !== 'preto');
-      let cartaTopo = sala.baralho.splice(indexCartaValida, 1)[0];
+      // === SISTEMA DE SORTEIO DO PRIMEIRO JOGADOR ===
+      sala.status = 'sorteando';
+      const sorteadoIndex = Math.floor(Math.random() * sala.jogadores.length);
+      sala.turnoIndex = sorteadoIndex; // O Jogador escolhido
       
-      sala.mesa.push(cartaTopo);
-      sala.turnoIndex = 0;
-      sala.sentido = 1;
-      sala.comprouNestaRodada = false;
-      sala.comprasAcumuladas = 0;
-      sala.eventoBateMesa = { ativo: false, jogadoresQueBateram: [], punicao: 0 };
-      sala.inicioTurnoTimeStamp = Date.now(); // Marca o início
+      io.to(codigoSala).emit('sorteando_primeiro_jogador', sala.jogadores[sorteadoIndex].id);
 
-      sala.jogadores.forEach(jogador => {
-        if (!jogador.isBot) {
-          io.to(jogador.id).emit('partida_iniciada', {
-            minhaMao: jogador.mao,
-            cartaMesa: cartaTopo,
-            turnoAtual: sala.jogadores[sala.turnoIndex].id,
-            sentido: sala.sentido,
-            comprouNestaRodada: sala.comprouNestaRodada,
-            comprasAcumuladas: sala.comprasAcumuladas,
-            infoJogadores: obterInfoJogadores(sala),
-            inicioTurno: sala.inicioTurnoTimeStamp
-          });
-        }
-      });
-      agendarTurnoBot(sala);
-      agendarTurnoHumano(sala);
+      // Aguarda 3,5 segundos para o FrontEnd exibir a roleta antes de enviar as cartas
+      setTimeout(() => {
+        if (!salas[codigoSala]) return;
+        
+        sala.status = 'jogando';
+        sala.baralho = criarBaralho();
+        sala.mesa = [];
+
+        sala.jogadores.forEach(jogador => {
+          jogador.mao = sala.baralho.splice(0, 7);
+          jogador.disseUno = false; 
+        });
+
+        const indexCartaValida = sala.baralho.findIndex(c => !isNaN(c.valor) && c.cor !== 'preto');
+        let cartaTopo = sala.baralho.splice(indexCartaValida, 1)[0];
+        
+        sala.mesa.push(cartaTopo);
+        sala.sentido = 1;
+        sala.comprouNestaRodada = false;
+        sala.comprasAcumuladas = 0;
+        sala.eventoBateMesa = { ativo: false, jogadoresQueBateram: [], punicao: 0 };
+        sala.inicioTurnoTimeStamp = Date.now(); 
+
+        sala.jogadores.forEach(jogador => {
+          if (!jogador.isBot) {
+            io.to(jogador.id).emit('partida_iniciada', {
+              minhaMao: jogador.mao,
+              cartaMesa: cartaTopo,
+              turnoAtual: sala.jogadores[sala.turnoIndex].id,
+              sentido: sala.sentido,
+              comprouNestaRodada: sala.comprouNestaRodada,
+              comprasAcumuladas: sala.comprasAcumuladas,
+              infoJogadores: obterInfoJogadores(sala),
+              inicioTurno: sala.inicioTurnoTimeStamp
+            });
+          }
+        });
+        agendarTurnoBot(sala);
+        agendarTurnoHumano(sala);
+      }, 3500); 
     }
   });
 
