@@ -22,8 +22,18 @@ function criarBaralho() {
 
   cores.forEach(cor => {
     valoresNormais.forEach(valor => {
+      // 1ª Cópia (Todas as cartas)
       baralho.push({ id: Math.random().toString(36).substring(2, 10), cor, valor, originalCor: cor, originalValor: valor });
-      if (valor !== '0') baralho.push({ id: Math.random().toString(36).substring(2, 10), cor, valor, originalCor: cor, originalValor: valor });
+      
+      // 2ª Cópia (Todas, exceto o 0)
+      if (valor !== '0') {
+        baralho.push({ id: Math.random().toString(36).substring(2, 10), cor, valor, originalCor: cor, originalValor: valor });
+      }
+      
+      // 3ª Cópia (Apenas cartas de 1 a 9) -> Adiciona as 36 cartas extras solicitadas!
+      if (['1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(valor)) {
+        baralho.push({ id: Math.random().toString(36).substring(2, 10), cor, valor, originalCor: cor, originalValor: valor });
+      }
     });
   });
 
@@ -39,6 +49,7 @@ function criarBaralho() {
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'espiar', originalCor: 'preto', originalValor: 'espiar' });
   }
 
+  // Embaralhar
   for (let i = baralho.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [baralho[i], baralho[j]] = [baralho[j], baralho[i]];
@@ -289,7 +300,6 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
   if (temEspiar && alvoTroca) {
     const alvo = sala.jogadores.find(j => j.id === alvoTroca);
     if (alvo) {
-      // Como o jogador já viu a carta na fase intermédia, só notificamos o alvo que foi espiado!
       io.to(alvo.id).emit('erro', `${jogador.nome} bisbilhotou as suas cartas!`);
     }
   }
@@ -573,7 +583,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // NOVO EVENTO: Puxar a mão do inimigo ANTES de jogar a carta!
   socket.on('espiar_cartas_alvo', ({ codigoSala, alvoId }) => {
     const sala = salas[codigoSala];
     if (sala && sala.status === 'jogando') {
