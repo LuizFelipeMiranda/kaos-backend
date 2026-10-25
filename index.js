@@ -15,21 +15,30 @@ const io = new Server(server, {
   }
 });
 
+// Geração com a Mega Atualização
 function criarBaralho() {
   const cores = ['vermelho', 'azul', 'verde', 'amarelo'];
-  const valores = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'bloqueio', 'inverter', '+2'];
+  const valoresNormais = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'bloqueio', 'inverter', '+2', '+3', 'espiar'];
   let baralho = [];
 
+  // Cartas com Cores
   cores.forEach(cor => {
-    valores.forEach(valor => {
+    valoresNormais.forEach(valor => {
       baralho.push({ id: Math.random().toString(36).substring(2, 10), cor, valor });
       if (valor !== '0') baralho.push({ id: Math.random().toString(36).substring(2, 10), cor, valor });
     });
   });
 
+  // Cartas Pretas (Curingas)
   for (let i = 0; i < 4; i++) {
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'coringa' });
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+4' });
+  }
+  for (let i = 0; i < 2; i++) {
+    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+6' });
+    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'igualar' });
+    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'reinicio' });
+    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'escolher_numero' });
   }
 
   for (let i = baralho.length - 1; i > 0; i--) {
@@ -58,21 +67,15 @@ function garantirBaralho(sala, qtdNecessaria) {
 
 function validarSequencia(cartas) {
   if (cartas.length === 1) return true;
-  
-  // Mesmos valores (Ex: jogar 3 cartas de valor '5' ou três cartas 'bloqueio')
   const mesmoValor = cartas.every(c => c.valor === cartas[0].valor);
   if (mesmoValor) return true;
   
-  // Sequência Numérica da MESMA COR
   const todosSaoNumeros = cartas.every(c => !isNaN(c.valor));
   if (todosSaoNumeros) {
     const mesmaCor = cartas.every(c => c.cor === cartas[0].cor);
     if (mesmaCor) {
-      // Verifica se é crescente (ex: 1, 2, 3)
       const crescente = cartas.every((c, i) => i === 0 ? true : parseInt(c.valor) === parseInt(cartas[i - 1].valor) + 1);
-      // Verifica se é decrescente (ex: 3, 2, 1)
       const decrescente = cartas.every((c, i) => i === 0 ? true : parseInt(c.valor) === parseInt(cartas[i - 1].valor) - 1);
-      
       if (crescente || decrescente) return true;
     }
   }
@@ -87,8 +90,10 @@ const obterInfoJogadores = (sala) => {
   }));
 };
 
-function emitirAtualizacao(sala) {
-  sala.inicioTurnoTimeStamp = Date.now(); 
+function emitirAtualizacao(sala, resetarTempo = true) {
+  if (resetarTempo) {
+    sala.inicioTurnoTimeStamp = Date.now(); 
+  }
 
   sala.jogadores.forEach(jogador => {
     io.to(jogador.id).emit('estado_atualizado', {
@@ -116,13 +121,13 @@ function emitirAtualizacao(sala) {
     }, 1500); 
   }
 
+  // Se o tempo não foi resetado, não precisamos de reagendar os timers (eles continuam a correr)
+  if (!resetarTempo) return;
+
   if (sala.botTimer) clearTimeout(sala.botTimer);
   if (sala.turnoTimer) clearTimeout(sala.turnoTimer);
 
-  // Se o evento da mesa estiver ativo, os relógios não começam até acabar!
-  if (sala.eventoBateMesa && sala.eventoBateMesa.ativo) {
-    return;
-  }
+  if (sala.eventoBateMesa && sala.eventoBateMesa.ativo) return;
 
   agendarTurnoBot(sala);
   agendarTurnoHumano(sala);
@@ -130,7 +135,6 @@ function emitirAtualizacao(sala) {
 
 function estourarTempo(sala, jogador) {
   if (sala.status !== 'jogando' || sala.jogadores[sala.turnoIndex].id !== jogador.id) return;
-  
   if (sala.comprasAcumuladas > 0) {
     efetuarCompra(sala, jogador);
   } else {
@@ -147,7 +151,7 @@ function agendarTurnoHumano(sala) {
 
   sala.turnoTimer = setTimeout(() => {
     estourarTempo(sala, jogadorAtual);
-  }, 20000); // <-- Tempo de turno agora é de 20 Segundos
+  }, 25000); // 25 Segundos
 }
 
 function agendarTurnoBot(sala) {
@@ -155,7 +159,7 @@ function agendarTurnoBot(sala) {
   const jogadorAtual = sala.jogadores[sala.turnoIndex];
   if (!jogadorAtual || !jogadorAtual.isBot) return;
   
-  const tempoPensamento = Math.floor(Math.random() * 1500) + 1500;
+  const tempoPensamento = Math.floor(Math.random() * 2000) + 2000;
   sala.botTimer = setTimeout(() => executarTurnoBot(sala, jogadorAtual), tempoPensamento);
 }
 
@@ -173,7 +177,7 @@ function executarTurnoBot(sala, bot) {
   if (sala.comprasAcumuladas > 0) {
     cartasValidas = bot.mao.filter(c => {
       const combina = c.cor === 'preto' || c.cor === cartaMesa.cor || c.valor === cartaMesa.valor;
-      return (c.valor === '+2' || c.valor === '+4') && combina;
+      return (c.valor === '+2' || c.valor === '+3' || c.valor === '+4' || c.valor === '+6') && combina;
     });
   } else {
     cartasValidas = bot.mao.filter(c => c.cor === 'preto' || c.cor === cartaMesa.cor || c.valor === cartaMesa.valor);
@@ -184,23 +188,34 @@ function executarTurnoBot(sala, bot) {
     const escolhida = cartasValidas[0];
     
     let combo = [escolhida];
-    if (escolhida.cor !== 'preto' && escolhida.valor !== '+2') {
+    if (escolhida.cor !== 'preto' && !['+2', '+3'].includes(escolhida.valor)) {
       const iguais = bot.mao.filter(c => c.valor === escolhida.valor && c.id !== escolhida.id && c.cor !== 'preto');
       combo = [escolhida, ...iguais];
     }
 
     let novaCor = null;
-    if (escolhida.cor === 'preto') {
+    let alvoTroca = null;
+    let alvoOpcao = null;
+    let alvoNumero = null;
+
+    if (escolhida.cor === 'preto' && escolhida.valor !== 'escolher_numero') {
       const contagem = { 'vermelho': 0, 'azul': 0, 'verde': 0, 'amarelo': 0 };
       bot.mao.forEach(c => { if(contagem[c.cor] !== undefined) contagem[c.cor]++ });
       novaCor = Object.keys(contagem).reduce((a, b) => contagem[a] > contagem[b] ? a : b);
     }
 
-    let alvoTroca = null;
-    if (escolhida.valor === '0') {
+    if (escolhida.valor === '0' || escolhida.valor === 'espiar') {
       let oponentes = sala.jogadores.filter(j => j.id !== bot.id);
       oponentes.sort((a, b) => a.mao.length - b.mao.length);
-      alvoTroca = oponentes[0].mao.length < bot.mao.length ? oponentes[0].id : 'ninguem';
+      alvoTroca = oponentes[0].id;
+    }
+
+    if (escolhida.valor === 'igualar') {
+      alvoOpcao = bot.mao.length > 4 ? 'menor' : 'maior';
+    }
+
+    if (escolhida.valor === 'escolher_numero') {
+      alvoNumero = Math.floor(Math.random() * 10).toString();
     }
 
     if (bot.mao.length - combo.length === 1) {
@@ -208,13 +223,13 @@ function executarTurnoBot(sala, bot) {
       io.to(sala.id).emit('erro', `${bot.nome} GRITOU KAOS!`);
     }
 
-    efetuarJogada(sala, bot, combo, novaCor, alvoTroca);
+    efetuarJogada(sala, bot, combo, novaCor, alvoTroca, alvoOpcao, alvoNumero);
   } else {
     efetuarCompra(sala, bot);
   }
 }
 
-function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
+function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alvoNumero) {
   if (!sala || sala.status !== 'jogando' || !jogador || sala.jogadores[sala.turnoIndex].id !== jogador.id) return;
   if (sala.eventoBateMesa && sala.eventoBateMesa.ativo) return io.to(jogador.id).emit('erro', 'Aguarde o fim do evento do 9!');
   if (!cartas || cartas.length === 0) return;
@@ -225,8 +240,8 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
   const combinaComMesa = isPrimeiraCoringa || primeiraCarta.cor === cartaMesa.cor || primeiraCarta.valor === cartaMesa.valor;
 
   if (!combinaComMesa) return io.to(jogador.id).emit('erro', 'A primeira carta não combina com a mesa!');
-  if (sala.comprasAcumuladas > 0 && primeiraCarta.valor !== '+2' && primeiraCarta.valor !== '+4') {
-    return io.to(jogador.id).emit('erro', `Jogue um +2/+4 ou compre ${sala.comprasAcumuladas} cartas.`);
+  if (sala.comprasAcumuladas > 0 && !['+2', '+3', '+4', '+6'].includes(primeiraCarta.valor)) {
+    return io.to(jogador.id).emit('erro', `Jogue uma carta de compra (+2/+3/+4/+6) ou compre ${sala.comprasAcumuladas} cartas.`);
   }
   if (!validarSequencia(cartas)) return io.to(jogador.id).emit('erro', 'Sequência inválida!');
 
@@ -237,7 +252,13 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
   });
 
   const ultimaCartaJogada = sala.mesa[sala.mesa.length - 1];
-  if (ultimaCartaJogada.cor === 'preto' && novaCor) ultimaCartaJogada.cor = novaCor;
+  
+  if (ultimaCartaJogada.valor === 'escolher_numero' && alvoNumero) {
+    ultimaCartaJogada.valor = alvoNumero;
+    // Permanece preta, não precisa de cor.
+  } else if (ultimaCartaJogada.cor === 'preto' && novaCor) {
+    ultimaCartaJogada.cor = novaCor;
+  }
 
   let pulos = 1;
   if (cartas[0].valor === 'inverter') {
@@ -246,30 +267,73 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
     pulos = cartas.length + 1; 
   }
 
+  // EVENTO ESPIAR
+  const temEspiar = cartas.some(c => c.valor === 'espiar');
+  if (temEspiar && alvoTroca) {
+    const alvo = sala.jogadores.find(j => j.id === alvoTroca);
+    if (alvo) {
+      io.to(jogador.id).emit('mao_espiao', { nome: alvo.nome, cartas: alvo.mao });
+      io.to(alvo.id).emit('erro', `👁️ ${jogador.nome} bisbilhotou as suas cartas!`);
+    }
+  }
+
+  // EVENTO IGUALAR
+  const temIgualar = cartas.some(c => c.valor === 'igualar');
+  if (temIgualar && alvoOpcao) {
+    if (alvoOpcao === 'menor') {
+      const menor = Math.min(...sala.jogadores.map(j => j.mao.length));
+      sala.jogadores.forEach(j => {
+        while(j.mao.length > menor) j.mao.pop();
+      });
+      io.to(sala.id).emit('erro', `⚖️ Igualdade feita pela MENOR mão (${menor} cartas)!`);
+    } else {
+      const maior = Math.max(...sala.jogadores.map(j => j.mao.length));
+      sala.jogadores.forEach(j => {
+        garantirBaralho(sala, maior - j.mao.length);
+        while(j.mao.length < maior) j.mao.push(sala.baralho.pop());
+      });
+      io.to(sala.id).emit('erro', `⚖️ Igualdade feita pela MAIOR mão (${maior} cartas)!`);
+    }
+  }
+
+  // EVENTO REINICIO
+  const temReinicio = cartas.some(c => c.valor === 'reinicio');
+  if (temReinicio) {
+    sala.jogadores.forEach(j => {
+      garantirBaralho(sala, 7);
+      j.mao = sala.baralho.splice(0, 7);
+      j.disseUno = false;
+    });
+    io.to(sala.id).emit('erro', `JOGO REINICIADO! Todos receberam 7 novas cartas!`);
+  }
+
+  // EVENTO ZERO
   const temZero = cartas.some(c => c.valor === '0');
   if (temZero && alvoTroca) {
     if (alvoTroca === 'ninguem') {
-      io.to(sala.id).emit('erro', `O jogador ${jogador.nome} decidiu manter as suas cartas!`);
+      io.to(sala.id).emit('erro', `O jogador ${jogador.nome} manteve as cartas.`);
     } else if (alvoTroca === 'todos') {
       const maosAntigas = sala.jogadores.map(j => [...j.mao]);
       sala.jogadores.forEach((j, i) => {
         const idx = ((i - sala.sentido) % sala.jogadores.length + sala.jogadores.length) % sala.jogadores.length;
         j.mao = maosAntigas[idx];
       });
-      io.to(sala.id).emit('erro', `Aviso: O jogador ${jogador.nome} rodou as mãos de todos os jogadores!`);
+      io.to(sala.id).emit('erro', `Aviso: O jogador ${jogador.nome} rodou todas as mãos!`);
     } else {
       const jogadorAlvo = sala.jogadores.find(j => j.id === alvoTroca);
       if (jogadorAlvo) {
         const maoTemp = [...jogador.mao];
         jogador.mao = [...jogadorAlvo.mao];
         jogadorAlvo.mao = maoTemp;
-        io.to(sala.id).emit('erro', `Aviso: O jogador ${jogador.nome} trocou as cartas com ${jogadorAlvo.nome}!`);
+        io.to(sala.id).emit('erro', `Aviso: ${jogador.nome} trocou as cartas com ${jogadorAlvo.nome}!`);
       }
     }
   }
 
   if (cartas[0].valor === '+2') sala.comprasAcumuladas += (2 * cartas.length);
+  else if (cartas[0].valor === '+3') sala.comprasAcumuladas += (3 * cartas.length);
   else if (cartas[0].valor === '+4') sala.comprasAcumuladas += (4 * cartas.length);
+  else if (cartas[0].valor === '+6') sala.comprasAcumuladas += (6 * cartas.length);
 
   if (ultimaCartaJogada.valor === '9') {
     const qtdNoves = cartas.filter(c => c.valor === '9').length; 
@@ -278,7 +342,7 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
     
     sala.jogadores.forEach(j => {
       if (j.isBot) {
-        const reflexoBot = Math.floor(Math.random() * 2500) + 1500; // Bots demoram entre 1.5s e 4s para bater
+        const reflexoBot = Math.floor(Math.random() * 2500) + 1500;
         setTimeout(() => efetuarBaterMesa(sala, j), reflexoBot);
       }
     });
@@ -296,7 +360,7 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca) {
     return io.to(sala.id).emit('fim_de_jogo', jogador.nome);
   }
 
-  emitirAtualizacao(sala);
+  emitirAtualizacao(sala, true);
 }
 
 function efetuarCompra(sala, jogador) {
@@ -314,10 +378,11 @@ function efetuarCompra(sala, jogador) {
   if (sala.comprasAcumuladas > 0) {
     sala.comprasAcumuladas = 0;
     sala.turnoIndex = ((sala.turnoIndex + sala.sentido) % sala.jogadores.length + sala.jogadores.length) % sala.jogadores.length;
+    emitirAtualizacao(sala, true); // Acabou o turno, avança e reseta tempo
   } else {
     sala.comprouNestaRodada = true;
+    emitirAtualizacao(sala, false); // Manteve o turno, NÃO reseta o cronómetro!
   }
-  emitirAtualizacao(sala);
 }
 
 function efetuarPassagem(sala, jogador) {
@@ -326,7 +391,7 @@ function efetuarPassagem(sala, jogador) {
 
   sala.turnoIndex = ((sala.turnoIndex + sala.sentido) % sala.jogadores.length + sala.jogadores.length) % sala.jogadores.length;
   sala.comprouNestaRodada = false;
-  emitirAtualizacao(sala);
+  emitirAtualizacao(sala, true); // Acabou turno, reseta o tempo
 }
 
 function efetuarBaterMesa(sala, jogador) {
@@ -336,7 +401,6 @@ function efetuarBaterMesa(sala, jogador) {
   sala.eventoBateMesa.jogadoresQueBateram.push(jogador.id);
   const bateram = sala.eventoBateMesa.jogadoresQueBateram.length;
 
-  // Se todos menos 1 bateram, aplica a punição e RETOMA O JOGO!
   if (bateram === sala.jogadores.length - 1) {
     const lerdinho = sala.jogadores.find(j => !sala.eventoBateMesa.jogadoresQueBateram.includes(j.id));
     if (lerdinho) {
@@ -344,38 +408,43 @@ function efetuarBaterMesa(sala, jogador) {
       for (let i = 0; i < sala.eventoBateMesa.punicao; i++) {
         if (sala.baralho.length > 0) lerdinho.mao.push(sala.baralho.pop());
       }
-      sala.eventoBateMesa.ativo = false; // Desbloqueia o jogo
+      sala.eventoBateMesa.ativo = false; 
       io.to(sala.id).emit('fim_evento_nove', { perdedor: lerdinho.nome, cartasCompradas: sala.eventoBateMesa.punicao });
-      
-      // Quando o evento acaba, dispara o cronómetro para a pessoa que é o atual turno
-      emitirAtualizacao(sala); 
+      emitirAtualizacao(sala, true); 
     }
   }
 }
 
+// CORREÇÃO: Kaos Inteligente
 function efetuarKaos(sala, denunciante) {
   if (!sala || sala.status !== 'jogando' || !denunciante) return;
   let denunciouAlguem = false;
-  let nomeInfrator = '';
+  let nomesInfratores = [];
   
+  // 1. Tenta denunciar alguém
   sala.jogadores.forEach(j => {
     if (j.mao.length === 1 && !j.disseUno && j.id !== denunciante.id) {
       garantirBaralho(sala, 1);
       if (sala.baralho.length > 0) j.mao.push(sala.baralho.pop());
       denunciouAlguem = true;
-      nomeInfrator = j.nome;
+      nomesInfratores.push(j.nome);
     }
   });
 
   if (denunciouAlguem) {
-    io.to(sala.id).emit('erro', `Aviso: O jogador ${nomeInfrator} esqueceu-se de gritar KAOS e comprou 1 carta!`);
-    emitirAtualizacao(sala);
+    io.to(sala.id).emit('erro', `Aviso: ${nomesInfratores.join(', ')} esqueceu de gritar KAOS e comprou 1 carta!`);
+    emitirAtualizacao(sala, false); 
     return; 
   }
 
+  // 2. Se não denunciou ninguém, e tem <=2 cartas, tenta salvar-se a si mesmo (só na sua vez)
   if (denunciante.mao.length <= 2) {
-    denunciante.disseUno = true;
-    io.to(sala.id).emit('erro', `${denunciante.nome} GRITOU KAOS!`);
+    if (sala.jogadores[sala.turnoIndex].id === denunciante.id) {
+      denunciante.disseUno = true;
+      io.to(sala.id).emit('erro', `${denunciante.nome} GRITOU KAOS!`);
+    } else {
+      io.to(denunciante.id).emit('erro', `Só podes gritar KAOS para te salvares na tua vez!`);
+    }
   } else {
     io.to(denunciante.id).emit('erro', `Ninguém para denunciar!`);
   }
@@ -404,7 +473,7 @@ io.on('connection', (socket) => {
             else if (index === sala.turnoIndex && sala.sentido === -1) sala.turnoIndex -= 1;
             
             if (sala.turnoIndex >= sala.jogadores.length || sala.turnoIndex < 0) sala.turnoIndex = 0;
-            emitirAtualizacao(sala);
+            emitirAtualizacao(sala, false);
           } else {
             io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
           }
@@ -442,9 +511,7 @@ io.on('connection', (socket) => {
       
       if (sala.jogadores.length === 1) {
         const nomesBots = [
-          { nome: '[BOT] ASA', avatar: 'asa' },
-          { nome: '[BOT] BOTAS', avatar: 'botas' },
-          { nome: '[BOT] CAIM', avatar: 'caim' }
+          { nome: '[BOT] ASA', avatar: 'asa' }, { nome: '[BOT] BOTAS', avatar: 'botas' }, { nome: '[BOT] CAIM', avatar: 'caim' }
         ];
         nomesBots.forEach((b, i) => {
           sala.jogadores.push({
@@ -467,7 +534,6 @@ io.on('connection', (socket) => {
         sala.baralho = criarBaralho();
         sala.mesa = [];
 
-        // Cada jogador recebe 7 cartas
         sala.jogadores.forEach(jogador => {
           jogador.mao = sala.baralho.splice(0, 7);
           jogador.disseUno = false; 
@@ -506,7 +572,7 @@ io.on('connection', (socket) => {
   socket.on('jogar_cartas', (dados) => {
     const sala = salas[dados.codigoSala];
     const jogador = sala?.jogadores.find(j => j.id === socket.id);
-    efetuarJogada(sala, jogador, dados.cartas, dados.novaCor, dados.alvoTroca);
+    efetuarJogada(sala, jogador, dados.cartas, dados.novaCor, dados.alvoTroca, dados.alvoOpcao, dados.alvoNumero);
   });
 
   socket.on('apertar_uno', (codigoSala) => {
@@ -531,6 +597,11 @@ io.on('connection', (socket) => {
     const sala = salas[codigoSala];
     const jogador = sala?.jogadores.find(j => j.id === socket.id);
     if (jogador) efetuarBaterMesa(sala, jogador);
+  });
+
+  // EMOTES
+  socket.on('enviar_emote', ({ codigoSala, emote }) => {
+    io.to(codigoSala).emit('emote_recebido', { id: socket.id, emote });
   });
 
   socket.on('sair_sala', (codigoSala) => {
