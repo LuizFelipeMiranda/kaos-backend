@@ -15,13 +15,11 @@ const io = new Server(server, {
   }
 });
 
-// Geração com a Mega Atualização
 function criarBaralho() {
   const cores = ['vermelho', 'azul', 'verde', 'amarelo'];
   const valoresNormais = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'bloqueio', 'inverter', '+2', '+3', 'espiar'];
   let baralho = [];
 
-  // Cartas com Cores
   cores.forEach(cor => {
     valoresNormais.forEach(valor => {
       baralho.push({ id: Math.random().toString(36).substring(2, 10), cor, valor });
@@ -29,7 +27,6 @@ function criarBaralho() {
     });
   });
 
-  // Cartas Pretas (Curingas)
   for (let i = 0; i < 4; i++) {
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'coringa' });
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+4' });
@@ -121,7 +118,6 @@ function emitirAtualizacao(sala, resetarTempo = true) {
     }, 1500); 
   }
 
-  // Se o tempo não foi resetado, não precisamos de reagendar os timers (eles continuam a correr)
   if (!resetarTempo) return;
 
   if (sala.botTimer) clearTimeout(sala.botTimer);
@@ -130,7 +126,7 @@ function emitirAtualizacao(sala, resetarTempo = true) {
   if (sala.eventoBateMesa && sala.eventoBateMesa.ativo) return;
 
   agendarTurnoBot(sala);
-  agendarTurnoHumano(sala);
+  agendarTurnoSeguranca(sala); // Substitui a antiga função, aplicando a todos
 }
 
 function estourarTempo(sala, jogador) {
@@ -144,14 +140,15 @@ function estourarTempo(sala, jogador) {
   io.to(sala.id).emit('erro', `⌛ O tempo de ${jogador.nome} esgotou-se!`);
 }
 
-function agendarTurnoHumano(sala) {
+// CORREÇÃO: Aplica a timeout timer para BOT e HUMANO
+function agendarTurnoSeguranca(sala) {
   if (sala.status !== 'jogando') return;
   const jogadorAtual = sala.jogadores[sala.turnoIndex];
-  if (!jogadorAtual || jogadorAtual.isBot) return;
+  if (!jogadorAtual) return;
 
   sala.turnoTimer = setTimeout(() => {
     estourarTempo(sala, jogadorAtual);
-  }, 25000); // 25 Segundos
+  }, 25000); 
 }
 
 function agendarTurnoBot(sala) {
@@ -206,8 +203,10 @@ function executarTurnoBot(sala, bot) {
 
     if (escolhida.valor === '0' || escolhida.valor === 'espiar') {
       let oponentes = sala.jogadores.filter(j => j.id !== bot.id);
-      oponentes.sort((a, b) => a.mao.length - b.mao.length);
-      alvoTroca = oponentes[0].id;
+      if(oponentes.length > 0) {
+        oponentes.sort((a, b) => a.mao.length - b.mao.length);
+        alvoTroca = oponentes[0].id;
+      }
     }
 
     if (escolhida.valor === 'igualar') {
@@ -255,7 +254,6 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
   
   if (ultimaCartaJogada.valor === 'escolher_numero' && alvoNumero) {
     ultimaCartaJogada.valor = alvoNumero;
-    // Permanece preta, não precisa de cor.
   } else if (ultimaCartaJogada.cor === 'preto' && novaCor) {
     ultimaCartaJogada.cor = novaCor;
   }
@@ -267,7 +265,6 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     pulos = cartas.length + 1; 
   }
 
-  // EVENTO ESPIAR
   const temEspiar = cartas.some(c => c.valor === 'espiar');
   if (temEspiar && alvoTroca) {
     const alvo = sala.jogadores.find(j => j.id === alvoTroca);
@@ -277,7 +274,6 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     }
   }
 
-  // EVENTO IGUALAR
   const temIgualar = cartas.some(c => c.valor === 'igualar');
   if (temIgualar && alvoOpcao) {
     if (alvoOpcao === 'menor') {
@@ -296,7 +292,6 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     }
   }
 
-  // EVENTO REINICIO
   const temReinicio = cartas.some(c => c.valor === 'reinicio');
   if (temReinicio) {
     sala.jogadores.forEach(j => {
@@ -304,10 +299,9 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
       j.mao = sala.baralho.splice(0, 7);
       j.disseUno = false;
     });
-    io.to(sala.id).emit('erro', `JOGO REINICIADO! Todos receberam 7 novas cartas!`);
+    io.to(sala.id).emit('erro', `🔥 JOGO REINICIADO! Todos receberam 7 novas cartas!`);
   }
 
-  // EVENTO ZERO
   const temZero = cartas.some(c => c.valor === '0');
   if (temZero && alvoTroca) {
     if (alvoTroca === 'ninguem') {
@@ -378,10 +372,10 @@ function efetuarCompra(sala, jogador) {
   if (sala.comprasAcumuladas > 0) {
     sala.comprasAcumuladas = 0;
     sala.turnoIndex = ((sala.turnoIndex + sala.sentido) % sala.jogadores.length + sala.jogadores.length) % sala.jogadores.length;
-    emitirAtualizacao(sala, true); // Acabou o turno, avança e reseta tempo
+    emitirAtualizacao(sala, true); 
   } else {
     sala.comprouNestaRodada = true;
-    emitirAtualizacao(sala, false); // Manteve o turno, NÃO reseta o cronómetro!
+    emitirAtualizacao(sala, false); 
   }
 }
 
@@ -391,7 +385,7 @@ function efetuarPassagem(sala, jogador) {
 
   sala.turnoIndex = ((sala.turnoIndex + sala.sentido) % sala.jogadores.length + sala.jogadores.length) % sala.jogadores.length;
   sala.comprouNestaRodada = false;
-  emitirAtualizacao(sala, true); // Acabou turno, reseta o tempo
+  emitirAtualizacao(sala, true); 
 }
 
 function efetuarBaterMesa(sala, jogador) {
@@ -415,13 +409,11 @@ function efetuarBaterMesa(sala, jogador) {
   }
 }
 
-// CORREÇÃO: Kaos Inteligente
 function efetuarKaos(sala, denunciante) {
   if (!sala || sala.status !== 'jogando' || !denunciante) return;
   let denunciouAlguem = false;
   let nomesInfratores = [];
   
-  // 1. Tenta denunciar alguém
   sala.jogadores.forEach(j => {
     if (j.mao.length === 1 && !j.disseUno && j.id !== denunciante.id) {
       garantirBaralho(sala, 1);
@@ -437,7 +429,6 @@ function efetuarKaos(sala, denunciante) {
     return; 
   }
 
-  // 2. Se não denunciou ninguém, e tem <=2 cartas, tenta salvar-se a si mesmo (só na sua vez)
   if (denunciante.mao.length <= 2) {
     if (sala.jogadores[sala.turnoIndex].id === denunciante.id) {
       denunciante.disseUno = true;
@@ -564,7 +555,7 @@ io.on('connection', (socket) => {
           }
         });
         agendarTurnoBot(sala);
-        agendarTurnoHumano(sala);
+        agendarTurnoSeguranca(sala);
       }, 3500); 
     }
   });
@@ -599,7 +590,6 @@ io.on('connection', (socket) => {
     if (jogador) efetuarBaterMesa(sala, jogador);
   });
 
-  // EMOTES
   socket.on('enviar_emote', ({ codigoSala, emote }) => {
     io.to(codigoSala).emit('emote_recebido', { id: socket.id, emote });
   });
