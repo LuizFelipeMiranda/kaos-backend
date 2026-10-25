@@ -289,7 +289,7 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
   if (temEspiar && alvoTroca) {
     const alvo = sala.jogadores.find(j => j.id === alvoTroca);
     if (alvo) {
-      io.to(jogador.id).emit('mao_espiao', { nome: alvo.nome, cartas: alvo.mao });
+      // Como o jogador já viu a carta na fase intermédia, só notificamos o alvo que foi espiado!
       io.to(alvo.id).emit('erro', `${jogador.nome} bisbilhotou as suas cartas!`);
     }
   }
@@ -425,7 +425,6 @@ function efetuarKaos(sala, denunciante) {
   let denunciouAlguem = false;
   let nomesInfratores = [];
   
-  // 1. Tentar denunciar infratores (independente de quantas cartas o denunciante tenha)
   sala.jogadores.forEach(j => {
     if (j.mao.length === 1 && !j.disseUno && j.id !== denunciante.id) {
       garantirBaralho(sala, 1);
@@ -441,12 +440,10 @@ function efetuarKaos(sala, denunciante) {
     return; 
   }
 
-  // 2. Não há quem denunciar. O jogador está tentando proteger a si mesmo.
   if (denunciante.mao.length === 1) {
     denunciante.disseUno = true;
     io.to(sala.id).emit('erro', `${denunciante.nome} GRITOU KAOS!`);
   } else if (denunciante.mao.length === 2) {
-    // Com 2 cartas, só se protege se for sua vez
     if (sala.jogadores[sala.turnoIndex].id === denunciante.id) {
       denunciante.disseUno = true;
       io.to(sala.id).emit('erro', `${denunciante.nome} GRITOU KAOS!`);
@@ -573,6 +570,17 @@ io.on('connection', (socket) => {
         agendarTurnoBot(sala);
         agendarTurnoSeguranca(sala);
       }, 3500); 
+    }
+  });
+
+  // NOVO EVENTO: Puxar a mão do inimigo ANTES de jogar a carta!
+  socket.on('espiar_cartas_alvo', ({ codigoSala, alvoId }) => {
+    const sala = salas[codigoSala];
+    if (sala && sala.status === 'jogando') {
+      const alvo = sala.jogadores.find(j => j.id === alvoId);
+      if (alvo) {
+        socket.emit('mao_espiao_previa', { nome: alvo.nome, cartas: alvo.mao });
+      }
     }
   });
 
