@@ -17,11 +17,9 @@ const io = new Server(server, {
 
 function criarBaralho() {
   const cores = ['vermelho', 'azul', 'verde', 'amarelo'];
-  // 'espiar' removido das normais, agora é especial (preta)
   const valoresNormais = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'bloqueio', 'inverter', '+2', '+3'];
   let baralho = [];
 
-  // Criar Cartas Normais
   cores.forEach(cor => {
     valoresNormais.forEach(valor => {
       baralho.push({ id: Math.random().toString(36).substring(2, 10), cor, valor, originalCor: cor, originalValor: valor });
@@ -29,7 +27,6 @@ function criarBaralho() {
     });
   });
 
-  // Criar Cartas Pretas Especiais
   for (let i = 0; i < 4; i++) {
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'coringa', originalCor: 'preto', originalValor: 'coringa' });
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+4', originalCor: 'preto', originalValor: '+4' });
@@ -61,7 +58,6 @@ function garantirBaralho(sala, qtdNecessaria) {
         [cartasParaEmbaralhar[i], cartasParaEmbaralhar[j]] = [cartasParaEmbaralhar[j], cartasParaEmbaralhar[i]];
       }
 
-      // CORREÇÃO MUTAÇÃO: Restaurar cor e valor originais antes de voltar pro baralho
       cartasParaEmbaralhar = cartasParaEmbaralhar.map(c => ({
         ...c,
         cor: c.originalCor,
@@ -326,7 +322,6 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     io.to(sala.id).emit('erro', `JOGO REINICIADO! Todos receberam 7 novas cartas!`);
   }
 
-  // EVENTOS 0 E 9 AGR CHECAM O VALOR ORIGINAL (IGNORA O "ESCOLHER_NUMERO")
   const temZero = cartas.some(c => c.originalValor === '0');
   if (temZero && alvoTroca) {
     if (alvoTroca === 'ninguem') {
@@ -430,6 +425,7 @@ function efetuarKaos(sala, denunciante) {
   let denunciouAlguem = false;
   let nomesInfratores = [];
   
+  // 1. Tentar denunciar infratores (independente de quantas cartas o denunciante tenha)
   sala.jogadores.forEach(j => {
     if (j.mao.length === 1 && !j.disseUno && j.id !== denunciante.id) {
       garantirBaralho(sala, 1);
@@ -445,10 +441,18 @@ function efetuarKaos(sala, denunciante) {
     return; 
   }
 
-  // CORREÇÃO: Permite salvar a si mesmo A QUALQUER MOMENTO se tiver <= 2 cartas[cite: 17]
-  if (denunciante.mao.length <= 2) {
+  // 2. Não há quem denunciar. O jogador está tentando proteger a si mesmo.
+  if (denunciante.mao.length === 1) {
     denunciante.disseUno = true;
     io.to(sala.id).emit('erro', `${denunciante.nome} GRITOU KAOS!`);
+  } else if (denunciante.mao.length === 2) {
+    // Com 2 cartas, só se protege se for sua vez
+    if (sala.jogadores[sala.turnoIndex].id === denunciante.id) {
+      denunciante.disseUno = true;
+      io.to(sala.id).emit('erro', `${denunciante.nome} GRITOU KAOS!`);
+    } else {
+      io.to(denunciante.id).emit('erro', `Com 2 cartas, só podes gritar na tua vez!`);
+    }
   } else {
     io.to(denunciante.id).emit('erro', `Ninguém para denunciar!`);
   }
