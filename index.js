@@ -22,34 +22,32 @@ function criarBaralho() {
 
   cores.forEach(cor => {
     valoresNormais.forEach(valor => {
-      // 1ª Cópia (Todas as cartas)
       baralho.push({ id: Math.random().toString(36).substring(2, 10), cor, valor, originalCor: cor, originalValor: valor });
       
-      // 2ª Cópia (Todas, exceto o 0)
       if (valor !== '0') {
         baralho.push({ id: Math.random().toString(36).substring(2, 10), cor, valor, originalCor: cor, originalValor: valor });
       }
       
-      // 3ª Cópia (Apenas cartas de 1 a 9) -> Adiciona as 36 cartas extras solicitadas!
       if (['1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(valor)) {
         baralho.push({ id: Math.random().toString(36).substring(2, 10), cor, valor, originalCor: cor, originalValor: valor });
       }
     });
   });
 
+  // Alterado para 4 cópias: Coringa, +4 e agora Espiar
   for (let i = 0; i < 4; i++) {
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'coringa', originalCor: 'preto', originalValor: 'coringa' });
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+4', originalCor: 'preto', originalValor: '+4' });
+    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'espiar', originalCor: 'preto', originalValor: 'espiar' });
   }
+  
   for (let i = 0; i < 2; i++) {
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+6', originalCor: 'preto', originalValor: '+6' });
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'igualar', originalCor: 'preto', originalValor: 'igualar' });
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'reinicio', originalCor: 'preto', originalValor: 'reinicio' });
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'escolher_numero', originalCor: 'preto', originalValor: 'escolher_numero' });
-    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'espiar', originalCor: 'preto', originalValor: 'espiar' });
   }
 
-  // Embaralhar
   for (let i = baralho.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [baralho[i], baralho[j]] = [baralho[j], baralho[i]];
