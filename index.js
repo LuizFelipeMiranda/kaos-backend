@@ -17,25 +17,29 @@ const io = new Server(server, {
 
 function criarBaralho() {
   const cores = ['vermelho', 'azul', 'verde', 'amarelo'];
-  const valoresNormais = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'bloqueio', 'inverter', '+2', '+3', 'espiar'];
+  // 'espiar' removido das normais, agora é especial (preta)
+  const valoresNormais = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'bloqueio', 'inverter', '+2', '+3'];
   let baralho = [];
 
+  // Criar Cartas Normais
   cores.forEach(cor => {
     valoresNormais.forEach(valor => {
-      baralho.push({ id: Math.random().toString(36).substring(2, 10), cor, valor });
-      if (valor !== '0') baralho.push({ id: Math.random().toString(36).substring(2, 10), cor, valor });
+      baralho.push({ id: Math.random().toString(36).substring(2, 10), cor, valor, originalCor: cor, originalValor: valor });
+      if (valor !== '0') baralho.push({ id: Math.random().toString(36).substring(2, 10), cor, valor, originalCor: cor, originalValor: valor });
     });
   });
 
+  // Criar Cartas Pretas Especiais
   for (let i = 0; i < 4; i++) {
-    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'coringa' });
-    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+4' });
+    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'coringa', originalCor: 'preto', originalValor: 'coringa' });
+    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+4', originalCor: 'preto', originalValor: '+4' });
   }
   for (let i = 0; i < 2; i++) {
-    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+6' });
-    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'igualar' });
-    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'reinicio' });
-    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'escolher_numero' });
+    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+6', originalCor: 'preto', originalValor: '+6' });
+    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'igualar', originalCor: 'preto', originalValor: 'igualar' });
+    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'reinicio', originalCor: 'preto', originalValor: 'reinicio' });
+    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'escolher_numero', originalCor: 'preto', originalValor: 'escolher_numero' });
+    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'espiar', originalCor: 'preto', originalValor: 'espiar' });
   }
 
   for (let i = baralho.length - 1; i > 0; i--) {
@@ -50,11 +54,20 @@ function garantirBaralho(sala, qtdNecessaria) {
   if (sala.baralho.length < qtdNecessaria) {
     if (sala.mesa.length > 1) {
       const topo = sala.mesa.pop(); 
-      const cartasParaEmbaralhar = [...sala.mesa]; 
+      let cartasParaEmbaralhar = [...sala.mesa]; 
+      
       for (let i = cartasParaEmbaralhar.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [cartasParaEmbaralhar[i], cartasParaEmbaralhar[j]] = [cartasParaEmbaralhar[j], cartasParaEmbaralhar[i]];
       }
+
+      // CORREÇÃO MUTAÇÃO: Restaurar cor e valor originais antes de voltar pro baralho
+      cartasParaEmbaralhar = cartasParaEmbaralhar.map(c => ({
+        ...c,
+        cor: c.originalCor,
+        valor: c.originalValor
+      }));
+
       sala.baralho = cartasParaEmbaralhar.concat(sala.baralho);
       sala.mesa = [topo];
       io.to(sala.id).emit('erro', 'Aviso: O monte acabou! As cartas da mesa foram reembaralhadas.');
@@ -114,7 +127,6 @@ function emitirAtualizacao(sala, resetarTempo = true) {
     }, 1500); 
   }
 
-  // Sempre verifica se o bot precisa jogar ou passar
   if (sala.botTimer) clearTimeout(sala.botTimer);
   agendarTurnoBot(sala);
 
@@ -160,13 +172,19 @@ function executarTurnoBot(sala, bot) {
   const cartaMesa = sala.mesa[sala.mesa.length - 1];
   let cartasValidas = [];
 
+  const isMesaEscolherNumero = cartaMesa.originalValor === 'escolher_numero';
+
   if (sala.comprasAcumuladas > 0) {
     cartasValidas = bot.mao.filter(c => {
       const combina = c.cor === 'preto' || c.cor === cartaMesa.cor || c.valor === cartaMesa.valor;
       return (c.valor === '+2' || c.valor === '+3' || c.valor === '+4' || c.valor === '+6') && combina;
     });
   } else {
-    cartasValidas = bot.mao.filter(c => c.cor === 'preto' || c.cor === cartaMesa.cor || c.valor === cartaMesa.valor);
+    cartasValidas = bot.mao.filter(c => {
+      const isEfeito = ['bloqueio', 'inverter', '+2', '+3', '+4', '+6', 'espiar', 'igualar', 'reinicio', 'escolher_numero', 'coringa'].includes(c.originalValor);
+      const combinaNormal = c.cor === 'preto' || c.cor === cartaMesa.cor || c.valor === cartaMesa.valor;
+      return combinaNormal || (isMesaEscolherNumero && isEfeito);
+    });
   }
 
   if (cartasValidas.length > 0) {
@@ -229,7 +247,11 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
   const cartaMesa = sala.mesa[sala.mesa.length - 1];
   const primeiraCarta = cartas[0];
   const isPrimeiraCoringa = primeiraCarta.cor === 'preto';
-  const combinaComMesa = isPrimeiraCoringa || primeiraCarta.cor === cartaMesa.cor || primeiraCarta.valor === cartaMesa.valor;
+  
+  const isEfeito = ['bloqueio', 'inverter', '+2', '+3', '+4', '+6', 'espiar', 'igualar', 'reinicio', 'escolher_numero', 'coringa'].includes(primeiraCarta.originalValor);
+  const anulaEscolherNumero = cartaMesa.originalValor === 'escolher_numero' && isEfeito;
+
+  const combinaComMesa = isPrimeiraCoringa || primeiraCarta.cor === cartaMesa.cor || primeiraCarta.valor === cartaMesa.valor || anulaEscolherNumero;
 
   if (!combinaComMesa) return io.to(jogador.id).emit('erro', 'A primeira carta não combina com a mesa!');
   if (sala.comprasAcumuladas > 0 && !['+2', '+3', '+4', '+6'].includes(primeiraCarta.valor)) {
@@ -243,7 +265,6 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     sala.mesa.push(cartaJogada);
   });
 
-  // CORREÇÃO IMEDIATA: Bateu? Fim de jogo e nenhum efeito extra acontece!
   if (jogador.mao.length === 0) {
     sala.status = 'finalizado';
     jogador.vitorias = (jogador.vitorias || 0) + 1; 
@@ -262,13 +283,13 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
   }
 
   let pulos = 1;
-  if (cartas[0].valor === 'inverter') {
+  if (cartas[0].originalValor === 'inverter') {
     if (cartas.length % 2 !== 0) sala.sentido *= -1;
-  } else if (cartas[0].valor === 'bloqueio') {
+  } else if (cartas[0].originalValor === 'bloqueio') {
     pulos = cartas.length + 1; 
   }
 
-  const temEspiar = cartas.some(c => c.valor === 'espiar');
+  const temEspiar = cartas.some(c => c.originalValor === 'espiar');
   if (temEspiar && alvoTroca) {
     const alvo = sala.jogadores.find(j => j.id === alvoTroca);
     if (alvo) {
@@ -277,7 +298,7 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     }
   }
 
-  const temIgualar = cartas.some(c => c.valor === 'igualar');
+  const temIgualar = cartas.some(c => c.originalValor === 'igualar');
   if (temIgualar && alvoOpcao) {
     if (alvoOpcao === 'menor') {
       const menor = Math.min(...sala.jogadores.map(j => j.mao.length));
@@ -295,7 +316,7 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     }
   }
 
-  const temReinicio = cartas.some(c => c.valor === 'reinicio');
+  const temReinicio = cartas.some(c => c.originalValor === 'reinicio');
   if (temReinicio) {
     sala.jogadores.forEach(j => {
       garantirBaralho(sala, 7);
@@ -305,7 +326,8 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     io.to(sala.id).emit('erro', `JOGO REINICIADO! Todos receberam 7 novas cartas!`);
   }
 
-  const temZero = cartas.some(c => c.valor === '0');
+  // EVENTOS 0 E 9 AGR CHECAM O VALOR ORIGINAL (IGNORA O "ESCOLHER_NUMERO")
+  const temZero = cartas.some(c => c.originalValor === '0');
   if (temZero && alvoTroca) {
     if (alvoTroca === 'ninguem') {
       io.to(sala.id).emit('erro', `O jogador ${jogador.nome} manteve as cartas.`);
@@ -327,13 +349,13 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     }
   }
 
-  if (cartas[0].valor === '+2') sala.comprasAcumuladas += (2 * cartas.length);
-  else if (cartas[0].valor === '+3') sala.comprasAcumuladas += (3 * cartas.length);
-  else if (cartas[0].valor === '+4') sala.comprasAcumuladas += (4 * cartas.length);
-  else if (cartas[0].valor === '+6') sala.comprasAcumuladas += (6 * cartas.length);
+  if (cartas[0].originalValor === '+2') sala.comprasAcumuladas += (2 * cartas.length);
+  else if (cartas[0].originalValor === '+3') sala.comprasAcumuladas += (3 * cartas.length);
+  else if (cartas[0].originalValor === '+4') sala.comprasAcumuladas += (4 * cartas.length);
+  else if (cartas[0].originalValor === '+6') sala.comprasAcumuladas += (6 * cartas.length);
 
-  if (ultimaCartaJogada.valor === '9') {
-    const qtdNoves = cartas.filter(c => c.valor === '9').length; 
+  const qtdNoves = cartas.filter(c => c.originalValor === '9').length; 
+  if (qtdNoves > 0) {
     sala.eventoBateMesa = { ativo: true, jogadoresQueBateram: [], punicao: qtdNoves };
     io.to(sala.id).emit('iniciar_evento_nove');
     
@@ -423,13 +445,10 @@ function efetuarKaos(sala, denunciante) {
     return; 
   }
 
+  // CORREÇÃO: Permite salvar a si mesmo A QUALQUER MOMENTO se tiver <= 2 cartas[cite: 17]
   if (denunciante.mao.length <= 2) {
-    if (sala.jogadores[sala.turnoIndex].id === denunciante.id) {
-      denunciante.disseUno = true;
-      io.to(sala.id).emit('erro', `${denunciante.nome} GRITOU KAOS!`);
-    } else {
-      io.to(denunciante.id).emit('erro', `Só podes gritar KAOS para te salvares na tua vez!`);
-    }
+    denunciante.disseUno = true;
+    io.to(sala.id).emit('erro', `${denunciante.nome} GRITOU KAOS!`);
   } else {
     io.to(denunciante.id).emit('erro', `Ninguém para denunciar!`);
   }
