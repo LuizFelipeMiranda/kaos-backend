@@ -154,7 +154,6 @@ function agendarTurnoSeguranca(sala) {
   const jogadorAtual = sala.jogadores[sala.turnoIndex];
   if (!jogadorAtual || jogadorAtual.isBot) return;
 
-  // Se o jogador estiver desconectado, o tempo passa rápido (5s)
   const tempoEspera = jogadorAtual.conectado ? 25000 : 5000;
   
   sala.turnoTimer = setTimeout(() => {
@@ -192,13 +191,12 @@ function executarTurnoBot(sala, bot) {
   }
 
   if (cartasValidas.length > 0) {
-    // NOVA INTELIGÊNCIA ARTIFICIAL: Heurística de Prioridade
     const peso = (c) => {
-      if (!isNaN(c.valor)) return 1; // Prioridade 1: Livrar-se dos números
-      if (['bloqueio', 'inverter'].includes(c.originalValor)) return 2; // Prioridade 2: Ações coloridas
-      if (['+2', '+3'].includes(c.originalValor)) return 3; // Prioridade 3: Ataques coloridos
-      if (c.cor === 'preto' && !['+4', '+6', 'igualar', 'reinicio'].includes(c.originalValor)) return 4; // Coringas simples
-      return 5; // Guardar +4, +6, Igualar e Reinício pro final ou emergências
+      if (!isNaN(c.valor)) return 1; 
+      if (['bloqueio', 'inverter'].includes(c.originalValor)) return 2; 
+      if (['+2', '+3'].includes(c.originalValor)) return 3; 
+      if (c.cor === 'preto' && !['+4', '+6', 'igualar', 'reinicio'].includes(c.originalValor)) return 4; 
+      return 5; 
     };
 
     cartasValidas.sort((a, b) => peso(a) - peso(b));
@@ -224,13 +222,12 @@ function executarTurnoBot(sala, bot) {
     if (escolhida.valor === '0' || escolhida.valor === 'espiar') {
       let oponentes = sala.jogadores.filter(j => j.id !== bot.id);
       if(oponentes.length > 0) {
-        oponentes.sort((a, b) => a.mao.length - b.mao.length); // Sempre foca no coitado que tem menos cartas
+        oponentes.sort((a, b) => a.mao.length - b.mao.length); 
         alvoTroca = oponentes[0].id;
       }
     }
 
     if (escolhida.valor === 'igualar') {
-      // Inteligência Maliciosa do Bot:
       alvoOpcao = bot.mao.length >= 4 ? 'menor' : 'maior'; 
     }
 
@@ -308,7 +305,6 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     }
   }
 
-  // Igualar, Reinicio e Zero seguem idênticos
   const temIgualar = cartas.some(c => c.originalValor === 'igualar');
   if (temIgualar && alvoOpcao) {
     if (alvoOpcao === 'menor') {
@@ -361,7 +357,7 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     io.to(sala.id).emit('iniciar_evento_nove');
     sala.jogadores.forEach(j => {
       if (j.isBot) { setTimeout(() => efetuarBaterMesa(sala, j), Math.floor(Math.random() * 2500) + 1500); }
-      if (!j.conectado && !j.isBot) { setTimeout(() => efetuarBaterMesa(sala, j), 4500); } // Auto-bate lento pra quem caiu
+      if (!j.conectado && !j.isBot) { setTimeout(() => efetuarBaterMesa(sala, j), 4500); } 
     });
   }
 
@@ -488,7 +484,6 @@ io.on('connection', (socket) => {
     }
   };
 
-  // SISTEMA DE RECONEXÃO: Novo Evento
   socket.on('reconectar', ({ codigoSala, userId }) => {
     const sala = salas[codigoSala];
     if (sala) {
@@ -553,9 +548,28 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('adicionar_bot', (codigoSala) => {
+    const sala = salas[codigoSala];
+    if (sala && sala.jogadores.length < 6) {
+      const botId = 'bot_' + Math.random().toString(36).substr(2, 5);
+      const nomesBots = ['BOTAS', 'ASA', 'CAIM', 'DUMMY', 'ECHO'];
+      const nomeAleatorio = nomesBots[Math.floor(Math.random() * nomesBots.length)];
+      
+      sala.jogadores.push({
+        id: botId,
+        nome: '[BOT] ' + nomeAleatorio,
+        avatar: Math.random().toString(36).substring(7),
+        isBot: true,
+        conectado: true,
+        vitorias: 0
+      });
+      
+      io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
+    }
+  });
+
   socket.on('iniciar_partida', (codigoSala) => {
     const sala = salas[codigoSala];
-    // Validação usando o socketId do host atual
     if (sala && sala.jogadores[0].socketId === socket.id && sala.status !== 'sorteando' && sala.status !== 'jogando') {
       
       if (sala.jogadores.length === 1) {
@@ -615,7 +629,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('espiar_cartas_alvo', ({ codigoSala, alvoId }) => {
+  socket.on('espiar_cartas_alvo', ({ codigoSala, alvoId, userId }) => {
     const sala = salas[codigoSala];
     if (sala && sala.status === 'jogando') {
       const alvo = sala.jogadores.find(j => j.id === alvoId);
@@ -625,7 +639,7 @@ io.on('connection', (socket) => {
 
   socket.on('jogar_cartas', (dados) => {
     const sala = salas[dados.codigoSala];
-    const jogador = sala?.jogadores.find(j => j.id === dados.userId); // Usando userId passado pelo front
+    const jogador = sala?.jogadores.find(j => j.id === dados.userId); 
     efetuarJogada(sala, jogador, dados.cartas, dados.novaCor, dados.alvoTroca, dados.alvoOpcao, dados.alvoNumero);
   });
 
@@ -665,7 +679,6 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log(`Socket caiu: ${socket.id}`);
-    // Procura o jogador pelo socketId que acabou de cair
     let salaEncontrada = null;
     let jogadorEncontrado = null;
     
@@ -683,7 +696,6 @@ io.on('connection', (socket) => {
       io.to(salaEncontrada.id).emit('atualizar_jogadores', obterInfoJogadores(salaEncontrada));
       io.to(salaEncontrada.id).emit('erro', `${jogadorEncontrado.nome} perdeu a conexão! Guardando o lugar por 60 segundos...`);
       
-      // Se não voltar em 60 segundos, remove-o de vez
       jogadorEncontrado.disconnectTimer = setTimeout(() => {
         if (!jogadorEncontrado.conectado) {
           processarDesconexaoTotal(salaEncontrada, jogadorEncontrado.id);
