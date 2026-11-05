@@ -15,12 +15,11 @@ const io = new Server(server, {
   }
 });
 
-// A Função agora aceita o 'modo' e filtra as cartas especiais se for Casual
-function criarBaralho(modo = 'kaos') {
+// A Função agora aceita 'regras' e filtra as cartas se for Casual
+function criarBaralho(regras = 'kaos') {
   const cores = ['vermelho', 'azul', 'verde', 'amarelo'];
-  // Cartas normais base (sem o +3 que é especial)
   const valoresNormaisBase = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'bloqueio', 'inverter', '+2'];
-  const valoresNormais = (modo === 'casual') ? valoresNormaisBase : [...valoresNormaisBase, '+3'];
+  const valoresNormais = (regras === 'casual') ? valoresNormaisBase : [...valoresNormaisBase, '+3'];
   
   let baralho = [];
 
@@ -38,19 +37,16 @@ function criarBaralho(modo = 'kaos') {
     });
   });
 
-  // Cartas Pretas
   for (let i = 0; i < 4; i++) {
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'coringa', originalCor: 'preto', originalValor: 'coringa' });
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+4', originalCor: 'preto', originalValor: '+4' });
     
-    // Espiar só entra se não for casual
-    if (modo !== 'casual') {
+    if (regras !== 'casual') {
       baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'espiar', originalCor: 'preto', originalValor: 'espiar' });
     }
   }
   
-  // Efeitos Globais Pretos (só para Kaos e Duplas)
-  if (modo !== 'casual') {
+  if (regras !== 'casual') {
     for (let i = 0; i < 2; i++) {
       baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+6', originalCor: 'preto', originalValor: '+6' });
       baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'igualar', originalCor: 'preto', originalValor: 'igualar' });
@@ -59,7 +55,6 @@ function criarBaralho(modo = 'kaos') {
     }
   }
 
-  // Embaralhar
   for (let i = baralho.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [baralho[i], baralho[j]] = [baralho[j], baralho[i]];
@@ -284,15 +279,16 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     sala.mesa.push(cartaJogada);
   });
 
-  // Lógica de Vitória (Incluindo Duplas)
+  // Lógica de Vitória atualizada para suportar Duplas de 4 ou 6 jogadores
   if (jogador.mao.length === 0) {
     sala.status = 'finalizado';
     if(sala.botTimer) clearTimeout(sala.botTimer);
     if(sala.turnoTimer) clearTimeout(sala.turnoTimer);
 
-    if (sala.modo === 'duplas' && sala.jogadores.length === 4) {
+    if (sala.formato === 'duplas' && (sala.jogadores.length === 4 || sala.jogadores.length === 6)) {
       const meuIndex = sala.jogadores.findIndex(j => j.id === jogador.id);
-      const parceiroIndex = (meuIndex + 2) % 4; // Ex: 0 e 2, ou 1 e 3
+      const deslocamento = sala.jogadores.length / 2; // se 4 -> +2, se 6 -> +3
+      const parceiroIndex = (meuIndex + deslocamento) % sala.jogadores.length;
       const parceiro = sala.jogadores[parceiroIndex];
 
       jogador.vitorias = (jogador.vitorias || 0) + 1;
@@ -526,7 +522,7 @@ io.on('connection', (socket) => {
 
   socket.on('criar_sala', ({ nomeJogador, avatar }) => {
     const codigoSala = Math.floor(1000 + Math.random() * 9000).toString();
-    salas[codigoSala] = { id: codigoSala, status: 'esperando', modo: 'kaos', jogadores: [{ id: socket.id, nome: nomeJogador, avatar, isBot: false, vitorias: 0, offline: false }] };
+    salas[codigoSala] = { id: codigoSala, status: 'esperando', regras: 'kaos', formato: 'pvp', jogadores: [{ id: socket.id, nome: nomeJogador, avatar, isBot: false, vitorias: 0, offline: false }] };
     socket.join(codigoSala);
     socket.emit('sala_criada', codigoSala);
   });
@@ -597,15 +593,32 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Alterado para receber objeto com {codigoSala, modo}
+  // Listener para expulsar jogadores e bots (Somente Host)
+  socket.on('remover_jogador', ({ codigoSala, alvoId }) => {
+    const sala = salas[codigoSala];
+    if (sala && sala.status === 'esperando' && sala.jogadores[0].id === socket.id) {
+      const index = sala.jogadores.findIndex(j => j.id === alvoId);
+      if (index > 0) { // garante que não expulsa o próprio host (index 0)
+        const jogadorRemovido = sala.jogadores[index];
+        sala.jogadores.splice(index, 1);
+        io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
+        if (!jogadorRemovido.isBot) {
+          io.to(alvoId).emit('voce_foi_removido'); // Avisa o jogador expulso
+        }
+      }
+    }
+  });
+
   socket.on('iniciar_partida', (dados) => {
-    const codigoSala = typeof dados === 'object' ? dados.codigoSala : dados;
-    const modoSelecionado = typeof dados === 'object' ? dados.modo : 'kaos';
+    const codigoSala = dados.codigoSala;
+    const regrasSelecionadas = dados.regras || 'kaos';
+    const formatoSelecionado = dados.formato || 'pvp';
 
     const sala = salas[codigoSala];
     if (sala && sala.jogadores[0].id === socket.id && sala.status !== 'sorteando' && sala.status !== 'jogando') {
       
-      sala.modo = modoSelecionado;
+      sala.regras = regrasSelecionadas;
+      sala.formato = formatoSelecionado;
 
       if (sala.jogadores.length === 1) {
         const nomesBots = [
@@ -629,7 +642,7 @@ io.on('connection', (socket) => {
         if (!salas[codigoSala]) return;
         
         sala.status = 'jogando';
-        sala.baralho = criarBaralho(sala.modo); // Cria o deck dependendo do modo!
+        sala.baralho = criarBaralho(sala.regras); // Cria o deck dependendo das regras (Casual/Kaos)
         sala.mesa = [];
 
         sala.jogadores.forEach(jogador => {
