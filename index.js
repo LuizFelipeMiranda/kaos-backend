@@ -34,7 +34,6 @@ function criarBaralho() {
     });
   });
 
-  // Alterado para 4 cópias: Coringa, +4 e agora Espiar
   for (let i = 0; i < 4; i++) {
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'coringa', originalCor: 'preto', originalValor: 'coringa' });
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+4', originalCor: 'preto', originalValor: '+4' });
@@ -101,22 +100,24 @@ const salas = {};
 
 const obterInfoJogadores = (sala) => {
   return sala.jogadores.map(j => ({
-    id: j.id, nome: j.nome, avatar: j.avatar, qtdCartas: j.mao ? j.mao.length : 0, vitorias: j.vitorias || 0
+    id: j.id, nome: j.nome, avatar: j.avatar, qtdCartas: j.mao ? j.mao.length : 0, vitorias: j.vitorias || 0, offline: j.offline || false
   }));
 };
 
 function emitirAtualizacao(sala, resetarTempo = true) {
   sala.jogadores.forEach(jogador => {
-    io.to(jogador.id).emit('estado_atualizado', {
-      minhaMao: jogador.mao,
-      cartaMesa: sala.mesa[sala.mesa.length - 1],
-      turnoAtual: sala.jogadores[sala.turnoIndex].id,
-      sentido: sala.sentido,
-      comprouNestaRodada: sala.comprouNestaRodada,
-      comprasAcumuladas: sala.comprasAcumuladas,
-      infoJogadores: obterInfoJogadores(sala),
-      resetarTempo: resetarTempo
-    });
+    if (!jogador.offline && !jogador.isBot) {
+      io.to(jogador.id).emit('estado_atualizado', {
+        minhaMao: jogador.mao,
+        cartaMesa: sala.mesa[sala.mesa.length - 1],
+        turnoAtual: sala.jogadores[sala.turnoIndex].id,
+        sentido: sala.sentido,
+        comprouNestaRodada: sala.comprouNestaRodada,
+        comprasAcumuladas: sala.comprasAcumuladas,
+        infoJogadores: obterInfoJogadores(sala),
+        resetarTempo: resetarTempo
+      });
+    }
   });
 
   const humanoVulneravel = sala.jogadores.find(j => j.mao.length === 1 && !j.disseUno && !j.isBot);
@@ -165,7 +166,7 @@ function agendarTurnoSeguranca(sala) {
 function agendarTurnoBot(sala) {
   if (sala.status !== 'jogando') return;
   const jogadorAtual = sala.jogadores[sala.turnoIndex];
-  if (!jogadorAtual || !jogadorAtual.isBot) return;
+  if (!jogadorAtual || (!jogadorAtual.isBot && !jogadorAtual.offline)) return;
   
   const tempoPensamento = Math.floor(Math.random() * 1500) + 1000;
   sala.botTimer = setTimeout(() => executarTurnoBot(sala, jogadorAtual), tempoPensamento);
@@ -363,7 +364,7 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     io.to(sala.id).emit('iniciar_evento_nove');
     
     sala.jogadores.forEach(j => {
-      if (j.isBot) {
+      if (j.isBot || j.offline) {
         const reflexoBot = Math.floor(Math.random() * 2500) + 1500;
         setTimeout(() => efetuarBaterMesa(sala, j), reflexoBot);
       }
@@ -472,24 +473,26 @@ io.on('connection', (socket) => {
       const index = sala.jogadores.findIndex(j => j.id === socketId);
       
       if (index !== -1) {
-        const nomeRemovido = sala.jogadores[index].nome;
-        sala.jogadores.splice(index, 1);
+        const jogador = sala.jogadores[index];
+        const nomeRemovido = jogador.nome;
         
-        if (sala.jogadores.length === 0 || sala.jogadores.every(j => j.isBot)) {
+        if (sala.status === 'jogando' || sala.status === 'sorteando') {
+          // Em vez de remover, marcamos como offline
+          jogador.offline = true;
+          io.to(codigoSala).emit('erro', `Aviso: ${nomeRemovido} perdeu a conexão!`);
+          io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
+        } else {
+          sala.jogadores.splice(index, 1);
+        }
+        
+        // Destruir a sala apenas se todos os humanos estiverem offline
+        const humanosOnline = sala.jogadores.some(j => !j.isBot && !j.offline);
+        if (!humanosOnline) {
           if (sala.botTimer) clearTimeout(sala.botTimer);
           if (sala.turnoTimer) clearTimeout(sala.turnoTimer);
           delete salas[codigoSala]; 
-        } else {
-          if (sala.status === 'jogando') {
-            io.to(codigoSala).emit('erro', `Aviso: ${nomeRemovido} saiu da partida!`);
-            if (index < sala.turnoIndex) sala.turnoIndex -= 1; 
-            else if (index === sala.turnoIndex && sala.sentido === -1) sala.turnoIndex -= 1;
-            
-            if (sala.turnoIndex >= sala.jogadores.length || sala.turnoIndex < 0) sala.turnoIndex = 0;
-            emitirAtualizacao(sala, false);
-          } else {
-            io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
-          }
+        } else if (sala.status !== 'jogando' && sala.status !== 'sorteando') {
+          io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
         }
         break; 
       }
@@ -498,7 +501,7 @@ io.on('connection', (socket) => {
 
   socket.on('criar_sala', ({ nomeJogador, avatar }) => {
     const codigoSala = Math.floor(1000 + Math.random() * 9000).toString();
-    salas[codigoSala] = { id: codigoSala, status: 'esperando', jogadores: [{ id: socket.id, nome: nomeJogador, avatar, isBot: false, vitorias: 0 }] };
+    salas[codigoSala] = { id: codigoSala, status: 'esperando', jogadores: [{ id: socket.id, nome: nomeJogador, avatar, isBot: false, vitorias: 0, offline: false }] };
     socket.join(codigoSala);
     socket.emit('sala_criada', codigoSala);
   });
@@ -506,15 +509,64 @@ io.on('connection', (socket) => {
   socket.on('entrar_sala', ({ codigoSala, nomeJogador, avatar }) => {
     const sala = salas[codigoSala];
     if (sala) {
-      if (sala.status === 'jogando' || sala.status === 'sorteando') return socket.emit('erro', 'A partida já começou!');
+      if (sala.status === 'jogando' || sala.status === 'sorteando') {
+        const jogadorDesconectado = sala.jogadores.find(j => j.nome === nomeJogador && j.offline);
+        
+        if (jogadorDesconectado) {
+          jogadorDesconectado.id = socket.id;
+          jogadorDesconectado.offline = false;
+          jogadorDesconectado.avatar = avatar;
+          
+          socket.join(codigoSala);
+          socket.emit('entrou_na_sala', codigoSala);
+          
+          socket.emit('partida_iniciada', {
+            minhaMao: jogadorDesconectado.mao,
+            cartaMesa: sala.mesa[sala.mesa.length - 1],
+            turnoAtual: sala.jogadores[sala.turnoIndex].id,
+            sentido: sala.sentido,
+            comprouNestaRodada: sala.comprouNestaRodada,
+            comprasAcumuladas: sala.comprasAcumuladas,
+            infoJogadores: obterInfoJogadores(sala),
+            resetarTempo: false
+          });
+          
+          io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
+          io.to(codigoSala).emit('erro', `${nomeJogador} reconectou-se à partida!`);
+          return;
+        }
+        return socket.emit('erro', 'A partida já começou ou jogador não encontrado!');
+      }
+
       if (sala.jogadores.length >= 6) return socket.emit('erro', 'A sala está cheia.');
       
-      sala.jogadores.push({ id: socket.id, nome: nomeJogador, avatar, isBot: false, vitorias: 0 });
+      sala.jogadores.push({ id: socket.id, nome: nomeJogador, avatar, isBot: false, vitorias: 0, offline: false });
       socket.join(codigoSala);
       io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
       socket.emit('entrou_na_sala', codigoSala);
     } else {
       socket.emit('erro', 'Código da sala não encontrado!');
+    }
+  });
+
+  // Lógica para adicionar bots manualmente no lobby
+  socket.on('adicionar_bot', ({ codigoSala, nomeBot }) => {
+    const sala = salas[codigoSala];
+    if (sala && sala.status === 'esperando' && sala.jogadores.length < 6) {
+      if (sala.jogadores[0].id === socket.id) {
+        const avatarLimpo = nomeBot.toLowerCase().replace(/[^a-z]/g, '');
+        sala.jogadores.push({
+          id: `bot_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          nome: nomeBot,
+          avatar: avatarLimpo,
+          isBot: true,
+          mao: [],
+          disseUno: false,
+          vitorias: 0,
+          offline: false
+        });
+        io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
+      }
     }
   });
 
@@ -528,7 +580,7 @@ io.on('connection', (socket) => {
         ];
         nomesBots.forEach((b, i) => {
           sala.jogadores.push({
-            id: `bot_${Date.now()}_${i}`, nome: b.nome, avatar: b.avatar, isBot: true, mao: [], disseUno: false, vitorias: 0
+            id: `bot_${Date.now()}_${i}`, nome: b.nome, avatar: b.avatar, isBot: true, mao: [], disseUno: false, vitorias: 0, offline: false
           });
         });
         io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
@@ -562,7 +614,7 @@ io.on('connection', (socket) => {
         sala.eventoBateMesa = { ativo: false, jogadoresQueBateram: [], punicao: 0 };
 
         sala.jogadores.forEach(jogador => {
-          if (!jogador.isBot) {
+          if (!jogador.isBot && !jogador.offline) {
             io.to(jogador.id).emit('partida_iniciada', {
               minhaMao: jogador.mao,
               cartaMesa: cartaTopo,
