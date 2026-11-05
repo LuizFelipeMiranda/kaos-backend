@@ -15,9 +15,13 @@ const io = new Server(server, {
   }
 });
 
-function criarBaralho() {
+// A Função agora aceita o 'modo' e filtra as cartas especiais se for Casual
+function criarBaralho(modo = 'kaos') {
   const cores = ['vermelho', 'azul', 'verde', 'amarelo'];
-  const valoresNormais = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'bloqueio', 'inverter', '+2', '+3'];
+  // Cartas normais base (sem o +3 que é especial)
+  const valoresNormaisBase = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'bloqueio', 'inverter', '+2'];
+  const valoresNormais = (modo === 'casual') ? valoresNormaisBase : [...valoresNormaisBase, '+3'];
+  
   let baralho = [];
 
   cores.forEach(cor => {
@@ -34,19 +38,28 @@ function criarBaralho() {
     });
   });
 
+  // Cartas Pretas
   for (let i = 0; i < 4; i++) {
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'coringa', originalCor: 'preto', originalValor: 'coringa' });
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+4', originalCor: 'preto', originalValor: '+4' });
-    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'espiar', originalCor: 'preto', originalValor: 'espiar' });
+    
+    // Espiar só entra se não for casual
+    if (modo !== 'casual') {
+      baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'espiar', originalCor: 'preto', originalValor: 'espiar' });
+    }
   }
   
-  for (let i = 0; i < 2; i++) {
-    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+6', originalCor: 'preto', originalValor: '+6' });
-    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'igualar', originalCor: 'preto', originalValor: 'igualar' });
-    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'reinicio', originalCor: 'preto', originalValor: 'reinicio' });
-    baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'escolher_numero', originalCor: 'preto', originalValor: 'escolher_numero' });
+  // Efeitos Globais Pretos (só para Kaos e Duplas)
+  if (modo !== 'casual') {
+    for (let i = 0; i < 2; i++) {
+      baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+6', originalCor: 'preto', originalValor: '+6' });
+      baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'igualar', originalCor: 'preto', originalValor: 'igualar' });
+      baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'reinicio', originalCor: 'preto', originalValor: 'reinicio' });
+      baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'escolher_numero', originalCor: 'preto', originalValor: 'escolher_numero' });
+    }
   }
 
+  // Embaralhar
   for (let i = baralho.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [baralho[i], baralho[j]] = [baralho[j], baralho[i]];
@@ -271,13 +284,27 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     sala.mesa.push(cartaJogada);
   });
 
+  // Lógica de Vitória (Incluindo Duplas)
   if (jogador.mao.length === 0) {
     sala.status = 'finalizado';
-    jogador.vitorias = (jogador.vitorias || 0) + 1; 
     if(sala.botTimer) clearTimeout(sala.botTimer);
     if(sala.turnoTimer) clearTimeout(sala.turnoTimer);
-    io.to(sala.id).emit('atualizar_jogadores', obterInfoJogadores(sala)); 
-    return io.to(sala.id).emit('fim_de_jogo', jogador.nome);
+
+    if (sala.modo === 'duplas' && sala.jogadores.length === 4) {
+      const meuIndex = sala.jogadores.findIndex(j => j.id === jogador.id);
+      const parceiroIndex = (meuIndex + 2) % 4; // Ex: 0 e 2, ou 1 e 3
+      const parceiro = sala.jogadores[parceiroIndex];
+
+      jogador.vitorias = (jogador.vitorias || 0) + 1;
+      if (parceiro) parceiro.vitorias = (parceiro.vitorias || 0) + 1;
+      
+      io.to(sala.id).emit('atualizar_jogadores', obterInfoJogadores(sala)); 
+      return io.to(sala.id).emit('fim_de_jogo', `${jogador.nome} & ${parceiro ? parceiro.nome : 'Parceiro'} (Dupla)`);
+    } else {
+      jogador.vitorias = (jogador.vitorias || 0) + 1; 
+      io.to(sala.id).emit('atualizar_jogadores', obterInfoJogadores(sala)); 
+      return io.to(sala.id).emit('fim_de_jogo', jogador.nome);
+    }
   }
 
   const ultimaCartaJogada = sala.mesa[sala.mesa.length - 1];
@@ -499,7 +526,7 @@ io.on('connection', (socket) => {
 
   socket.on('criar_sala', ({ nomeJogador, avatar }) => {
     const codigoSala = Math.floor(1000 + Math.random() * 9000).toString();
-    salas[codigoSala] = { id: codigoSala, status: 'esperando', jogadores: [{ id: socket.id, nome: nomeJogador, avatar, isBot: false, vitorias: 0, offline: false }] };
+    salas[codigoSala] = { id: codigoSala, status: 'esperando', modo: 'kaos', jogadores: [{ id: socket.id, nome: nomeJogador, avatar, isBot: false, vitorias: 0, offline: false }] };
     socket.join(codigoSala);
     socket.emit('sala_criada', codigoSala);
   });
@@ -570,10 +597,16 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('iniciar_partida', (codigoSala) => {
+  // Alterado para receber objeto com {codigoSala, modo}
+  socket.on('iniciar_partida', (dados) => {
+    const codigoSala = typeof dados === 'object' ? dados.codigoSala : dados;
+    const modoSelecionado = typeof dados === 'object' ? dados.modo : 'kaos';
+
     const sala = salas[codigoSala];
     if (sala && sala.jogadores[0].id === socket.id && sala.status !== 'sorteando' && sala.status !== 'jogando') {
       
+      sala.modo = modoSelecionado;
+
       if (sala.jogadores.length === 1) {
         const nomesBots = [
           { nome: '[BOT] ASA', avatar: 'asa' }, { nome: '[BOT] BOTAS', avatar: 'botas' }, { nome: '[BOT] CAIM', avatar: 'caim' }
@@ -596,7 +629,7 @@ io.on('connection', (socket) => {
         if (!salas[codigoSala]) return;
         
         sala.status = 'jogando';
-        sala.baralho = criarBaralho();
+        sala.baralho = criarBaralho(sala.modo); // Cria o deck dependendo do modo!
         sala.mesa = [];
 
         sala.jogadores.forEach(jogador => {
