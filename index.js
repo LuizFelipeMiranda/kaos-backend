@@ -477,7 +477,6 @@ io.on('connection', (socket) => {
         const nomeRemovido = jogador.nome;
         
         if (sala.status === 'jogando' || sala.status === 'sorteando') {
-          // Em vez de remover, marcamos como offline
           jogador.offline = true;
           io.to(codigoSala).emit('erro', `Aviso: ${nomeRemovido} perdeu a conexão!`);
           io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
@@ -485,7 +484,6 @@ io.on('connection', (socket) => {
           sala.jogadores.splice(index, 1);
         }
         
-        // Destruir a sala apenas se todos os humanos estiverem offline
         const humanosOnline = sala.jogadores.some(j => !j.isBot && !j.offline);
         if (!humanosOnline) {
           if (sala.botTimer) clearTimeout(sala.botTimer);
@@ -509,17 +507,17 @@ io.on('connection', (socket) => {
   socket.on('entrar_sala', ({ codigoSala, nomeJogador, avatar }) => {
     const sala = salas[codigoSala];
     if (sala) {
-      if (sala.status === 'jogando' || sala.status === 'sorteando') {
-        const jogadorDesconectado = sala.jogadores.find(j => j.nome === nomeJogador && j.offline);
+      const jogadorDesconectado = sala.jogadores.find(j => j.nome.toLowerCase().trim() === nomeJogador.toLowerCase().trim() && j.offline);
         
-        if (jogadorDesconectado) {
-          jogadorDesconectado.id = socket.id;
-          jogadorDesconectado.offline = false;
-          jogadorDesconectado.avatar = avatar;
+      if (jogadorDesconectado) {
+        jogadorDesconectado.id = socket.id;
+        jogadorDesconectado.offline = false;
+        jogadorDesconectado.avatar = avatar;
           
-          socket.join(codigoSala);
-          socket.emit('entrou_na_sala', codigoSala);
+        socket.join(codigoSala);
+        socket.emit('entrou_na_sala', codigoSala);
           
+        if (sala.status === 'jogando' || sala.status === 'sorteando') {
           socket.emit('partida_iniciada', {
             minhaMao: jogadorDesconectado.mao,
             cartaMesa: sala.mesa[sala.mesa.length - 1],
@@ -530,11 +528,14 @@ io.on('connection', (socket) => {
             infoJogadores: obterInfoJogadores(sala),
             resetarTempo: false
           });
-          
-          io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
-          io.to(codigoSala).emit('erro', `${nomeJogador} reconectou-se à partida!`);
-          return;
         }
+          
+        io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
+        io.to(codigoSala).emit('erro', `${nomeJogador} reconectou-se à partida!`);
+        return;
+      }
+
+      if (sala.status === 'jogando' || sala.status === 'sorteando') {
         return socket.emit('erro', 'A partida já começou ou jogador não encontrado!');
       }
 
@@ -549,7 +550,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Lógica para adicionar bots manualmente no lobby
   socket.on('adicionar_bot', ({ codigoSala, nomeBot }) => {
     const sala = salas[codigoSala];
     if (sala && sala.status === 'esperando' && sala.jogadores.length < 6) {
