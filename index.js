@@ -568,7 +568,8 @@ io.on('connection', (socket) => {
 
   socket.on('adicionar_bot', ({ codigoSala, nomeBot }) => {
     const sala = salas[codigoSala];
-    if (sala && sala.status === 'esperando' && sala.jogadores.length < 6) {
+    // Adicionado: || sala.status === 'finalizado'
+    if (sala && (sala.status === 'esperando' || sala.status === 'finalizado') && sala.jogadores.length < 6) {
       if (sala.jogadores[0].id === socket.id) {
         const avatarLimpo = nomeBot.toLowerCase().replace(/[^a-z]/g, '');
         sala.jogadores.push({ 
@@ -589,7 +590,8 @@ io.on('connection', (socket) => {
 
   socket.on('remover_jogador', ({ codigoSala, alvoId }) => {
     const sala = salas[codigoSala];
-    if (sala && sala.status === 'esperando' && sala.jogadores[0].id === socket.id) {
+    // Adicionado: || sala.status === 'finalizado'
+    if (sala && (sala.status === 'esperando' || sala.status === 'finalizado') && sala.jogadores[0].id === socket.id) {
       const index = sala.jogadores.findIndex(j => j.id === alvoId);
       if (index > 0) { 
         const jogadorRemovido = sala.jogadores[index];
@@ -604,7 +606,8 @@ io.on('connection', (socket) => {
 
   socket.on('reordenar_jogadores', ({ codigoSala, novaOrdem }) => {
     const sala = salas[codigoSala];
-    if (sala && sala.status === 'esperando' && sala.jogadores[0].id === socket.id) {
+    // Adicionado: || sala.status === 'finalizado'
+    if (sala && (sala.status === 'esperando' || sala.status === 'finalizado') && sala.jogadores[0].id === socket.id) {
       const novaLista = [];
       novaOrdem.forEach(id => {
         const jog = sala.jogadores.find(j => j.id === id);
