@@ -320,15 +320,25 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
   if (temIgualar && alvoOpcao) {
     if (alvoOpcao === 'menor') {
       const menor = Math.min(...sala.jogadores.map(j => j.mao.length));
+      let cartasRemovidas = [];
       sala.jogadores.forEach(j => { 
-        while(j.mao.length > menor) j.mao.pop(); 
+        while(j.mao.length > menor) {
+          cartasRemovidas.push(j.mao.pop()); 
+        }
       });
+      
+      // Limpa os efeitos e devolve ao fundo do baralho para não desaparecerem
+      cartasRemovidas.forEach(c => { c.cor = c.originalCor; c.valor = c.originalValor; });
+      sala.baralho = cartasRemovidas.concat(sala.baralho);
+
       io.to(sala.id).emit('erro', `Igualdade feita pela MENOR mão (${menor} cartas)!`);
     } else {
       const maior = Math.max(...sala.jogadores.map(j => j.mao.length));
       sala.jogadores.forEach(j => { 
         garantirBaralho(sala, maior - j.mao.length); 
-        while(j.mao.length < maior) j.mao.push(sala.baralho.pop()); 
+        while(j.mao.length < maior) {
+           if(sala.baralho.length > 0) j.mao.push(sala.baralho.pop());
+        }
       });
       io.to(sala.id).emit('erro', `Igualdade feita pela MAIOR mão (${maior} cartas)!`);
     }
@@ -336,6 +346,25 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
 
   const temReinicio = cartas.some(c => c.originalValor === 'reinicio');
   if (temReinicio) {
+    let cartasRecolhidas = [];
+    
+    // 1. Recolher as mãos atuais de todos antes de dar novas
+    sala.jogadores.forEach(j => {
+      cartasRecolhidas = cartasRecolhidas.concat(j.mao);
+      j.mao = []; 
+    });
+
+    // 2. Limpar os efeitos e baralhar as cartas recolhidas
+    cartasRecolhidas.forEach(c => { c.cor = c.originalCor; c.valor = c.originalValor; });
+    for (let i = cartasRecolhidas.length - 1; i > 0; i--) {
+      const k = Math.floor(Math.random() * (i + 1));
+      [cartasRecolhidas[i], cartasRecolhidas[k]] = [cartasRecolhidas[k], cartasRecolhidas[i]];
+    }
+    
+    // 3. Devolver ao baralho global
+    sala.baralho = cartasRecolhidas.concat(sala.baralho);
+
+    // 4. Distribuir 7 cartas novas tranquilamente
     sala.jogadores.forEach(j => { 
       garantirBaralho(sala, 7); 
       j.mao = sala.baralho.splice(0, 7); 
