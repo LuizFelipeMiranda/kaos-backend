@@ -236,19 +236,19 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     if (sala.regras === 'boss') {
       if (jogador.isBoss) {
         jogador.vitorias = (jogador.vitorias || 0) + 1;
-        io.to(sala.id).emit('fim_de_jogo', `😈 O BOSS (${jogador.nome})`);
+        io.to(sala.id).emit('fim_de_jogo', ` O CHEFÃO (${jogador.nome}) Venceu!`);
       } else {
         sala.jogadores.forEach(j => { if (!j.isBoss) j.vitorias = (j.vitorias || 0) + 1; });
-        io.to(sala.id).emit('fim_de_jogo', `A ALIANÇA (Equipe de ${jogador.nome})`);
+        io.to(sala.id).emit('fim_de_jogo', `Os Jogadores Venceram o Chefão!`);
       }
     } else if (sala.formato === 'duplas') {
       const parceiro = sala.jogadores[(sala.jogadores.findIndex(j => j.id === jogador.id) + sala.jogadores.length / 2) % sala.jogadores.length];
       jogador.vitorias = (jogador.vitorias || 0) + 1;
       if (parceiro) parceiro.vitorias = (parceiro.vitorias || 0) + 1;
-      io.to(sala.id).emit('fim_de_jogo', `${jogador.nome} & ${parceiro ? parceiro.nome : 'Parceiro'}`);
+      io.to(sala.id).emit('fim_de_jogo', `${jogador.nome} & ${parceiro ? parceiro.nome : 'Parceiro'} Venceram!`);
     } else {
       jogador.vitorias = (jogador.vitorias || 0) + 1; 
-      io.to(sala.id).emit('fim_de_jogo', jogador.nome);
+      io.to(sala.id).emit('fim_de_jogo', `${jogador.nome} Venceu!`);
     }
     io.to(sala.id).emit('atualizar_jogadores', obterInfoJogadores(sala));
     return;
