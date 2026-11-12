@@ -18,8 +18,7 @@ const io = new Server(server, {
 function criarBaralho(regras = 'kaos') {
   const cores = ['vermelho', 'azul', 'verde', 'amarelo'];
   const valoresNormaisBase = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'bloqueio', 'inverter', '+2'];
-  // No modo Boss, usa-se apenas as cartas casuais!
-  const valoresNormais = (regras === 'casual' || regras === 'boss') ? valoresNormaisBase : [...valoresNormaisBase, '+3'];
+  const valoresNormais = (regras === 'casual' || regras === 'boss' || regras === 'kaos_aleatorio') ? valoresNormaisBase : [...valoresNormaisBase, '+3'];
   
   let baralho = [];
 
@@ -34,10 +33,10 @@ function criarBaralho(regras = 'kaos') {
   for (let i = 0; i < 4; i++) {
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'coringa', originalCor: 'preto', originalValor: 'coringa' });
     baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+4', originalCor: 'preto', originalValor: '+4' });
-    if (regras !== 'casual' && regras !== 'boss') baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'espiar', originalCor: 'preto', originalValor: 'espiar' });
+    if (regras !== 'casual' && regras !== 'boss' && regras !== 'kaos_aleatorio') baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'espiar', originalCor: 'preto', originalValor: 'espiar' });
   }
   
-  if (regras !== 'casual' && regras !== 'boss') {
+  if (regras !== 'casual' && regras !== 'boss' && regras !== 'kaos_aleatorio') {
     for (let i = 0; i < 2; i++) {
       baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: '+6', originalCor: 'preto', originalValor: '+6' });
       baralho.push({ id: Math.random().toString(36).substring(2, 10), cor: 'preto', valor: 'igualar', originalCor: 'preto', originalValor: 'igualar' });
@@ -116,6 +115,96 @@ function emitirAtualizacao(sala, resetarTempo = true) {
     if (!sala.eventoBateMesa?.ativo) agendarTurnoSeguranca(sala);
   }
 }
+
+// ==========================================
+// FUNÇÕES DO KAOS ALEATÓRIO (EVENTOS GLOBAIS)
+// ==========================================
+
+function agendarEventoAleatorio(sala) {
+  if (sala.status !== 'jogando' || sala.regras !== 'kaos_aleatorio') return;
+  if (sala.eventoAleatorioTimer) clearTimeout(sala.eventoAleatorioTimer);
+  
+  sala.eventoAleatorioTimer = setTimeout(() => dispararEventoAleatorio(sala), 90000); // A cada 90 segundos
+}
+
+function dispararEventoAleatorio(sala) {
+  if (sala.status !== 'jogando') return;
+  
+  // Pausa o jogo
+  if (sala.turnoTimer) clearTimeout(sala.turnoTimer);
+  if (sala.botTimer) clearTimeout(sala.botTimer);
+
+  const eventos = [
+    { id: 'inverter', titulo: "🔄 SENTIDO INVERTIDO!", descricao: "A ordem de jogo foi revertida repentinamente." },
+    { id: 'passar_mao', titulo: "👐 RODA A RODA!", descricao: "Todos passam a sua mão para o jogador ao lado." },
+    { id: 'comprar_4', titulo: "🃏 CHUVA DE CARTAS!", descricao: "O céu escureceu e todos compram 4 cartas!" },
+    { id: 'igualar', titulo: "⚖️ EQUILÍBRIO!", descricao: "As mãos de todos os jogadores serão igualadas!" },
+    { id: 'espiar', titulo: "👀 OLHOS BEM ABERTOS!", descricao: "Vais poder espiar as cartas do próximo jogador!" },
+    { id: 'presente', titulo: "🎁 PRESENTE SURPRESA!", descricao: "Todos recebem uma carta extra de compra!" }
+  ];
+
+  const evento = eventos[Math.floor(Math.random() * eventos.length)];
+  io.to(sala.id).emit('evento_aleatorio_iniciado', evento);
+
+  // Executa após os 5s de exibição do modal
+  setTimeout(() => {
+    if (!salas[sala.id]) return;
+    executarEventoAleatorio(sala, evento.id);
+    io.to(sala.id).emit('evento_aleatorio_concluido');
+    
+    if (sala.status === 'jogando') {
+      emitirAtualizacao(sala, true);
+      agendarEventoAleatorio(sala); // Reagenda para daqui a 90 segundos
+    }
+  }, 5000);
+}
+
+function executarEventoAleatorio(sala, eventoId) {
+  if (eventoId === 'inverter') {
+    sala.sentido *= -1;
+  } else if (eventoId === 'passar_mao') {
+    const maosAntigas = sala.jogadores.map(j => [...j.mao]);
+    sala.jogadores.forEach((j, i) => j.mao = maosAntigas[((i - sala.sentido) % sala.jogadores.length + sala.jogadores.length) % sala.jogadores.length]);
+  } else if (eventoId === 'comprar_4') {
+    sala.jogadores.forEach(j => {
+      garantirBaralho(sala, 4);
+      for (let i = 0; i < 4; i++) { if (sala.baralho.length > 0) j.mao.push(sala.baralho.pop()); }
+    });
+  } else if (eventoId === 'igualar') {
+    const opcao = Math.random() > 0.5 ? 'maior' : 'menor';
+    if (opcao === 'menor') {
+      const menor = Math.min(...sala.jogadores.map(j => j.mao.length));
+      let removidas = [];
+      sala.jogadores.forEach(j => { while(j.mao.length > menor) removidas.push(j.mao.pop()); });
+      removidas.forEach(c => { c.cor = c.originalCor; c.valor = c.originalValor; });
+      sala.baralho = removidas.concat(sala.baralho);
+    } else {
+      const maior = Math.max(...sala.jogadores.map(j => j.mao.length));
+      sala.jogadores.forEach(j => { garantirBaralho(sala, maior - j.mao.length); while(j.mao.length < maior && sala.baralho.length > 0) j.mao.push(sala.baralho.pop()); });
+    }
+  } else if (eventoId === 'espiar') {
+    sala.jogadores.forEach((j, i) => {
+      if (!j.isBot && !j.offline) {
+        const proximoIndex = ((i + sala.sentido) % sala.jogadores.length + sala.jogadores.length) % sala.jogadores.length;
+        const proximo = sala.jogadores[proximoIndex];
+        io.to(j.id).emit('olhar_cartas_lado', { nome: proximo.nome, cartas: proximo.mao });
+      }
+    });
+  } else if (eventoId === 'presente') {
+    // BARALHO DE EMERGÊNCIA (Não retira da pilha principal para não quebrar a lógica)
+    sala.jogadores.forEach(j => {
+      const tipo = Math.random() < 0.2 ? '+4' : '+2'; // 20% de vir um +4, 80% de um +2
+      const cor = tipo === '+4' ? 'preto' : ['vermelho', 'azul', 'verde', 'amarelo'][Math.floor(Math.random() * 4)];
+      const cartaEmergencia = { 
+        id: `emg_${Math.random().toString(36).substring(2, 10)}`, 
+        cor: cor, valor: tipo, originalCor: cor, originalValor: tipo 
+      };
+      j.mao.push(cartaEmergencia);
+    });
+  }
+}
+
+// ==========================================
 
 function avancarTurno(sala, pulosExtras = 0) {
   const jogadorAtual = sala.jogadores[sala.turnoIndex];
@@ -232,23 +321,24 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     sala.status = 'finalizado';
     if(sala.botTimer) clearTimeout(sala.botTimer);
     if(sala.turnoTimer) clearTimeout(sala.turnoTimer);
+    if(sala.eventoAleatorioTimer) clearTimeout(sala.eventoAleatorioTimer);
 
     if (sala.regras === 'boss') {
       if (jogador.isBoss) {
         jogador.vitorias = (jogador.vitorias || 0) + 1;
-        io.to(sala.id).emit('fim_de_jogo', ` O CHEFÃO (${jogador.nome}) Venceu!`);
+        io.to(sala.id).emit('fim_de_jogo', `😈 O BOSS (${jogador.nome})`);
       } else {
         sala.jogadores.forEach(j => { if (!j.isBoss) j.vitorias = (j.vitorias || 0) + 1; });
-        io.to(sala.id).emit('fim_de_jogo', `Os Jogadores Venceram o Chefão!`);
+        io.to(sala.id).emit('fim_de_jogo', `A ALIANÇA (Equipe de ${jogador.nome})`);
       }
     } else if (sala.formato === 'duplas') {
       const parceiro = sala.jogadores[(sala.jogadores.findIndex(j => j.id === jogador.id) + sala.jogadores.length / 2) % sala.jogadores.length];
       jogador.vitorias = (jogador.vitorias || 0) + 1;
       if (parceiro) parceiro.vitorias = (parceiro.vitorias || 0) + 1;
-      io.to(sala.id).emit('fim_de_jogo', `${jogador.nome} & ${parceiro ? parceiro.nome : 'Parceiro'} Venceram!`);
+      io.to(sala.id).emit('fim_de_jogo', `${jogador.nome} & ${parceiro ? parceiro.nome : 'Parceiro'}`);
     } else {
       jogador.vitorias = (jogador.vitorias || 0) + 1; 
-      io.to(sala.id).emit('fim_de_jogo', `${jogador.nome} Venceu!`);
+      io.to(sala.id).emit('fim_de_jogo', jogador.nome);
     }
     io.to(sala.id).emit('atualizar_jogadores', obterInfoJogadores(sala));
     return;
@@ -293,7 +383,7 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
   }
 
   const temZero = cartas.some(c => c.originalValor === '0');
-  if (temZero && alvoTroca) {
+  if (temZero && sala.regras !== 'boss' && alvoTroca) {
     if (alvoTroca === 'ninguem') io.to(sala.id).emit('erro', `O jogador ${jogador.nome} manteve as cartas.`);
     else if (alvoTroca === 'todos') {
       const maosAntigas = sala.jogadores.map(j => [...j.mao]);
@@ -404,6 +494,7 @@ io.on('connection', (socket) => {
         if (!sala.jogadores.some(j => !j.isBot && !j.offline)) {
           if (sala.botTimer) clearTimeout(sala.botTimer);
           if (sala.turnoTimer) clearTimeout(sala.turnoTimer);
+          if (sala.eventoAleatorioTimer) clearTimeout(sala.eventoAleatorioTimer); // Limpa o evento de Kaos Aleatório!
           delete salas[codigoSala]; 
         } else if (sala.status !== 'jogando' && sala.status !== 'sorteando') { io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala)); }
         break; 
@@ -466,7 +557,6 @@ io.on('connection', (socket) => {
     const sala = salas[dados.codigoSala];
     if (sala && sala.jogadores[0].id === socket.id && sala.status !== 'sorteando' && sala.status !== 'jogando') {
       sala.regras = dados.regras || 'kaos'; 
-      // Se for Boss, fixamos o formato internamente para PvP, embora no lobby o botão Formato fique desativado.
       sala.formato = sala.regras === 'boss' ? 'pvp' : (dados.formato || 'pvp');
       
       if (sala.jogadores.length === 1) {
@@ -485,7 +575,7 @@ io.on('connection', (socket) => {
         sala.jogadores.forEach((j, i) => j.isBoss = (i === sorteadoIndex));
         sala.jogadaBossAtiva = 1;
         sala.pulosAcumulados = 0;
-        sala.turnoIndex = sorteadoIndex; // O Boss começa a jogar!
+        sala.turnoIndex = sorteadoIndex;
       } else {
         sala.turnoIndex = Math.floor(Math.random() * sala.jogadores.length); 
         sala.jogadores.forEach(j => j.isBoss = false);
@@ -501,7 +591,7 @@ io.on('connection', (socket) => {
         sala.mesa = [];
 
         sala.jogadores.forEach(jogador => { 
-          const qtd = (sala.regras === 'boss' && jogador.isBoss) ? 15 : 7;
+          const qtd = (sala.regras === 'boss' && jogador.isBoss) ? 20 : 7;
           garantirBaralho(sala, qtd);
           jogador.mao = sala.baralho.splice(0, qtd); 
           jogador.disseUno = false; 
@@ -517,7 +607,14 @@ io.on('connection', (socket) => {
             io.to(jogador.id).emit('partida_iniciada', { minhaMao: jogador.mao, cartaMesa: cartaTopo, turnoAtual: sala.jogadores[sala.turnoIndex].id, sentido: sala.sentido, comprouNestaRodada: sala.comprouNestaRodada, comprasAcumuladas: sala.comprasAcumuladas, infoJogadores: obterInfoJogadores(sala), resetarTempo: true, jogadaBossAtiva: sala.jogadaBossAtiva || 1 });
           }
         });
-        agendarTurnoBot(sala); agendarTurnoSeguranca(sala);
+        
+        agendarTurnoBot(sala); 
+        agendarTurnoSeguranca(sala);
+        
+        // Ativa o timer inicial se for o modo Kaos Aleatório!
+        if (sala.regras === 'kaos_aleatorio') {
+          agendarEventoAleatorio(sala);
+        }
       }, 3500); 
     }
   });
