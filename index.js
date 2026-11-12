@@ -135,7 +135,7 @@ function dispararEventoAleatorio(sala) {
   if (sala.botTimer) clearTimeout(sala.botTimer);
 
   const eventos = [
-    { id: 'inverter', titulo: "🔄 SENTIDO INVERTIDO!", descricao: "A ordem de jogo foi revertida repentinamente." },
+    { id: 'inverter', titulo: "🔄 SENTIDO INVERTIDO!", descricao: "A ordem de jogo foi invertida." },
     { id: 'passar_mao', titulo: "👐 RODA A RODA!", descricao: "Todos passam a sua mão para o jogador ao lado." },
     { id: 'comprar_4', titulo: "🃏 CHUVA DE CARTAS!", descricao: "Todos compram 4 cartas!" },
     { id: 'igualar', titulo: "⚖️ EQUILÍBRIO!", descricao: "As mãos de todos os jogadores serão igualadas!" },
