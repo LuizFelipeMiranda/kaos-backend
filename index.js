@@ -326,10 +326,10 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     if (sala.regras === 'boss') {
       if (jogador.isBoss) {
         jogador.vitorias = (jogador.vitorias || 0) + 1;
-        io.to(sala.id).emit('fim_de_jogo', `😈 O BOSS (${jogador.nome})`);
+        io.to(sala.id).emit('fim_de_jogo', `💀 O CHEFÃO (${jogador.nome})`);
       } else {
         sala.jogadores.forEach(j => { if (!j.isBoss) j.vitorias = (j.vitorias || 0) + 1; });
-        io.to(sala.id).emit('fim_de_jogo', `A ALIANÇA (Equipe de ${jogador.nome})`);
+        io.to(sala.id).emit('fim_de_jogo', ` Os jogadores venceram o CHEFÃO!`);
       }
     } else if (sala.formato === 'duplas') {
       const parceiro = sala.jogadores[(sala.jogadores.findIndex(j => j.id === jogador.id) + sala.jogadores.length / 2) % sala.jogadores.length];
