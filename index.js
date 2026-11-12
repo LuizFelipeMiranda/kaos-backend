@@ -124,7 +124,7 @@ function agendarEventoAleatorio(sala) {
   if (sala.status !== 'jogando' || sala.regras !== 'kaos_aleatorio') return;
   if (sala.eventoAleatorioTimer) clearTimeout(sala.eventoAleatorioTimer);
   
-  sala.eventoAleatorioTimer = setTimeout(() => dispararEventoAleatorio(sala), 90000); // A cada 90 segundos
+  sala.eventoAleatorioTimer = setTimeout(() => dispararEventoAleatorio(sala), 50000); // A cada 50 segundos
 }
 
 function dispararEventoAleatorio(sala) {
@@ -137,10 +137,10 @@ function dispararEventoAleatorio(sala) {
   const eventos = [
     { id: 'inverter', titulo: "🔄 SENTIDO INVERTIDO!", descricao: "A ordem de jogo foi revertida repentinamente." },
     { id: 'passar_mao', titulo: "👐 RODA A RODA!", descricao: "Todos passam a sua mão para o jogador ao lado." },
-    { id: 'comprar_4', titulo: "🃏 CHUVA DE CARTAS!", descricao: "O céu escureceu e todos compram 4 cartas!" },
+    { id: 'comprar_4', titulo: "🃏 CHUVA DE CARTAS!", descricao: "Todos compram 4 cartas!" },
     { id: 'igualar', titulo: "⚖️ EQUILÍBRIO!", descricao: "As mãos de todos os jogadores serão igualadas!" },
-    { id: 'espiar', titulo: "👀 OLHOS BEM ABERTOS!", descricao: "Vais poder espiar as cartas do próximo jogador!" },
-    { id: 'presente', titulo: "🎁 PRESENTE SURPRESA!", descricao: "Todos recebem uma carta extra de compra!" }
+    { id: 'espiar', titulo: "👀 OLHOS BEM ABERTOS!", descricao: "Espie as cartas do próximo jogador!" },
+    { id: 'presente', titulo: "🎁 PRESENTE SURPRESA!", descricao: "Todos recebem uma carta de compra extra!" }
   ];
 
   const evento = eventos[Math.floor(Math.random() * eventos.length)];
@@ -154,7 +154,7 @@ function dispararEventoAleatorio(sala) {
     
     if (sala.status === 'jogando') {
       emitirAtualizacao(sala, true);
-      agendarEventoAleatorio(sala); // Reagenda para daqui a 90 segundos
+      agendarEventoAleatorio(sala); // Reagenda para daqui a 50 segundos
     }
   }, 5000);
 }
