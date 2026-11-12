@@ -53,6 +53,7 @@ function criarBaralho(regras = 'kaos') {
 }
 
 function garantirBaralho(sala, qtdNecessaria) {
+  // 1. Tenta reembaralhar o monte de descarte (mesa) se faltar carta
   if (sala.baralho.length < qtdNecessaria && sala.mesa.length > 1) {
     const topo = sala.mesa.pop(); 
     let cartasParaEmbaralhar = [...sala.mesa]; 
@@ -64,6 +65,26 @@ function garantirBaralho(sala, qtdNecessaria) {
     sala.baralho = cartasParaEmbaralhar.concat(sala.baralho);
     sala.mesa = [topo];
     io.to(sala.id).emit('erro', 'Aviso: O monte acabou! As cartas da mesa foram reembaralhadas.');
+  }
+
+  // 2. BARALHO DE EMERGÊNCIA: Apenas para compras comuns
+  // Gera EXATAMENTE a quantidade que falta usando números de 0 a 9 para evitar loops infinitos
+  if (sala.baralho.length < qtdNecessaria) {
+    const faltam = qtdNecessaria - sala.baralho.length;
+    const cores = ['vermelho', 'azul', 'verde', 'amarelo'];
+    
+    for (let i = 0; i < faltam; i++) {
+      const num = Math.floor(Math.random() * 10).toString(); 
+      const cor = cores[Math.floor(Math.random() * cores.length)];
+      
+      sala.baralho.unshift({ 
+        id: `emg_${Math.random().toString(36).substring(2, 10)}`, 
+        cor: cor, 
+        valor: num, 
+        originalCor: cor, 
+        originalValor: num 
+      });
+    }
   }
 }
 
@@ -124,29 +145,28 @@ function agendarEventoAleatorio(sala) {
   if (sala.status !== 'jogando' || sala.regras !== 'kaos_aleatorio') return;
   if (sala.eventoAleatorioTimer) clearTimeout(sala.eventoAleatorioTimer);
   
-  sala.eventoAleatorioTimer = setTimeout(() => dispararEventoAleatorio(sala), 50000); // A cada 50 segundos
+  sala.eventoAleatorioTimer = setTimeout(() => dispararEventoAleatorio(sala), 50000); 
 }
 
 function dispararEventoAleatorio(sala) {
   if (sala.status !== 'jogando') return;
   
-  // Pausa o jogo
   if (sala.turnoTimer) clearTimeout(sala.turnoTimer);
   if (sala.botTimer) clearTimeout(sala.botTimer);
 
   const eventos = [
-    { id: 'inverter', titulo: "🔄 SENTIDO INVERTIDO!", descricao: "A ordem de jogo foi invertida." },
+    { id: 'inverter', titulo: "🔄 SENTIDO INVERTIDO!", descricao: "A ordem de jogo foi revertida repentinamente." },
     { id: 'passar_mao', titulo: "👐 RODA A RODA!", descricao: "Todos passam a sua mão para o jogador ao lado." },
     { id: 'comprar_4', titulo: "🃏 CHUVA DE CARTAS!", descricao: "Todos compram 4 cartas!" },
     { id: 'igualar', titulo: "⚖️ EQUILÍBRIO!", descricao: "As mãos de todos os jogadores serão igualadas!" },
     { id: 'espiar', titulo: "👀 OLHOS BEM ABERTOS!", descricao: "Espie as cartas do próximo jogador!" },
-    { id: 'presente', titulo: "🎁 PRESENTE SURPRESA!", descricao: "Todos recebem uma carta de compra extra!" }
+    { id: 'presente', titulo: "🎁 PRESENTE SURPRESA!", descricao: "Todos recebem uma carta extra da mesa ou baralho!" },
+    { id: 'descarte_metade', titulo: "🗑️ QUEIMA DE ESTOQUE!", descricao: "Todos descartam metade de suas cartas!" }
   ];
 
   const evento = eventos[Math.floor(Math.random() * eventos.length)];
   io.to(sala.id).emit('evento_aleatorio_iniciado', evento);
 
-  // Executa após os 5s de exibição do modal
   setTimeout(() => {
     if (!salas[sala.id]) return;
     executarEventoAleatorio(sala, evento.id);
@@ -154,7 +174,7 @@ function dispararEventoAleatorio(sala) {
     
     if (sala.status === 'jogando') {
       emitirAtualizacao(sala, true);
-      agendarEventoAleatorio(sala); // Reagenda para daqui a 50 segundos
+      agendarEventoAleatorio(sala); 
     }
   }, 5000);
 }
@@ -191,16 +211,67 @@ function executarEventoAleatorio(sala, eventoId) {
       }
     });
   } else if (eventoId === 'presente') {
-    // BARALHO DE EMERGÊNCIA (Não retira da pilha principal para não quebrar a lógica)
+    
+    // Procura pegar uma carta física existente (+2 ou +4)
     sala.jogadores.forEach(j => {
-      const tipo = Math.random() < 0.2 ? '+4' : '+2'; // 20% de vir um +4, 80% de um +2
-      const cor = tipo === '+4' ? 'preto' : ['vermelho', 'azul', 'verde', 'amarelo'][Math.floor(Math.random() * 4)];
-      const cartaEmergencia = { 
-        id: `emg_${Math.random().toString(36).substring(2, 10)}`, 
-        cor: cor, valor: tipo, originalCor: cor, originalValor: tipo 
-      };
-      j.mao.push(cartaEmergencia);
+      let cartaEncontrada = null;
+
+      // 1. Tenta achar no baralho principal
+      const indexBaralho = sala.baralho.findIndex(c => c.originalValor === '+2' || c.originalValor === '+4');
+      if (indexBaralho !== -1) {
+        cartaEncontrada = sala.baralho.splice(indexBaralho, 1)[0];
+      }
+
+      // 2. Se não achou no baralho, tenta achar no descarte
+      if (!cartaEncontrada) {
+        const indexMesa = sala.mesa.findIndex((c, i) => i < sala.mesa.length - 1 && (c.originalValor === '+2' || c.originalValor === '+4'));
+        if (indexMesa !== -1) {
+          cartaEncontrada = sala.mesa.splice(indexMesa, 1)[0];
+          cartaEncontrada.cor = cartaEncontrada.originalCor;
+          cartaEncontrada.valor = cartaEncontrada.originalValor;
+        }
+      }
+
+      // 3. BARALHO DE EMERGÊNCIA (PRESENTE): 
+      // Se não encontrou +2 ou +4 no baralho físico, fornece do baralho de emergência
+      if (!cartaEncontrada) {
+        const tipo = Math.random() > 0.5 ? '+2' : '+4'; 
+        const cor = tipo === '+4' ? 'preto' : ['vermelho', 'azul', 'verde', 'amarelo'][Math.floor(Math.random() * 4)];
+        
+        cartaEncontrada = { 
+          id: `emg_pres_${Math.random().toString(36).substring(2, 10)}`, 
+          cor: cor, 
+          valor: tipo, 
+          originalCor: cor, 
+          originalValor: tipo 
+        };
+      }
+
+      j.mao.push(cartaEncontrada);
     });
+
+  } else if (eventoId === 'descarte_metade') {
+    let todasDescartadas = [];
+    sala.jogadores.forEach(j => {
+      if (j.mao.length > 1) {
+        const qtdDescarte = Math.floor(j.mao.length / 2);
+        
+        for (let i = 0; i < qtdDescarte; i++) {
+          const randomIndex = Math.floor(Math.random() * j.mao.length);
+          const carta = j.mao.splice(randomIndex, 1)[0];
+          carta.cor = carta.originalCor;
+          carta.valor = carta.originalValor;
+          todasDescartadas.push(carta);
+        }
+      }
+    });
+    
+    // Embaralha todas as cartas descartadas e devolve pro fundo do baralho
+    for (let i = todasDescartadas.length - 1; i > 0; i--) {
+      const k = Math.floor(Math.random() * (i + 1));
+      [todasDescartadas[i], todasDescartadas[k]] = [todasDescartadas[k], todasDescartadas[i]];
+    }
+    sala.baralho = todasDescartadas.concat(sala.baralho);
   }
 }
 
@@ -494,7 +565,7 @@ io.on('connection', (socket) => {
         if (!sala.jogadores.some(j => !j.isBot && !j.offline)) {
           if (sala.botTimer) clearTimeout(sala.botTimer);
           if (sala.turnoTimer) clearTimeout(sala.turnoTimer);
-          if (sala.eventoAleatorioTimer) clearTimeout(sala.eventoAleatorioTimer); // Limpa o evento de Kaos Aleatório!
+          if (sala.eventoAleatorioTimer) clearTimeout(sala.eventoAleatorioTimer);
           delete salas[codigoSala]; 
         } else if (sala.status !== 'jogando' && sala.status !== 'sorteando') { io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala)); }
         break; 
@@ -611,7 +682,6 @@ io.on('connection', (socket) => {
         agendarTurnoBot(sala); 
         agendarTurnoSeguranca(sala);
         
-        // Ativa o timer inicial se for o modo Kaos Aleatório!
         if (sala.regras === 'kaos_aleatorio') {
           agendarEventoAleatorio(sala);
         }
