@@ -160,7 +160,7 @@ function dispararEventoAleatorio(sala) {
     { id: 'comprar_4', titulo: "🃏 CHUVA DE CARTAS!", descricao: "Todos compram 4 cartas!" },
     { id: 'igualar', titulo: "⚖️ EQUILÍBRIO!", descricao: "As mãos de todos os jogadores serão igualadas!" },
     { id: 'espiar', titulo: "👀 OLHOS BEM ABERTOS!", descricao: "Espie as cartas do próximo jogador!" },
-    { id: 'presente', titulo: "🎁 PRESENTE SURPRESA!", descricao: "Todos recebem uma carta extra da mesa ou baralho!" },
+    { id: 'presente', titulo: "🎁 PRESENTE SURPRESA!", descricao: "Todos recebem uma carta de compra extra!" },
     { id: 'descarte_metade', titulo: "🗑️ QUEIMA DE ESTOQUE!", descricao: "Todos descartam metade de suas cartas!" }
   ];
 
