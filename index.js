@@ -15,6 +15,15 @@ const io = new Server(server, {
   }
 });
 
+// Avatares personalizados para os 5 Bots (adventurer-neutral)
+const AVATARES_BOTS = {
+  '[BOT] ALGA': 'Alga&eyes=variant14&mouth=variant06&eyebrows=variant03',   // Feminino
+  '[BOT] LUNA': 'Luna&eyes=variant05&mouth=variant02&eyebrows=variant02',   // Feminino
+  '[BOT] BOTAS': 'Botas&eyes=variant12&mouth=variant09&eyebrows=variant06',  // Masculino
+  '[BOT] VITE': 'Vite&eyes=variant10&mouth=variant15&eyebrows=variant04',    // Masculino
+  '[BOT] RYSER': 'Ryser&eyes=variant17&mouth=variant03&eyebrows=variant09'   // Masculino
+};
+
 function criarBaralho(regras = 'kaos') {
   const cores = ['vermelho', 'azul', 'verde', 'amarelo'];
   const valoresNormaisBase = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'bloqueio', 'inverter', '+2'];
@@ -610,7 +619,13 @@ io.on('connection', (socket) => {
   socket.on('adicionar_bot', ({ codigoSala, nomeBot }) => {
     const sala = salas[codigoSala];
     if (sala && (sala.status === 'esperando' || sala.status === 'finalizado') && sala.jogadores.length < 6 && sala.jogadores[0].id === socket.id) {
-      sala.jogadores.push({ id: `bot_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`, nome: nomeBot, avatar: nomeBot.toLowerCase().replace(/[^a-z]/g, ''), isBot: true, mao: [], disseUno: false, vitorias: 0, offline: false, corEquipe: null, isBoss: false });
+      const avatarBot = AVATARES_BOTS[nomeBot] || nomeBot.toLowerCase().replace(/[^a-z]/g, '');
+      sala.jogadores.push({ 
+        id: `bot_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`, 
+        nome: nomeBot, 
+        avatar: avatarBot, 
+        isBot: true, mao: [], disseUno: false, vitorias: 0, offline: false, corEquipe: null, isBoss: false 
+      });
       io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
     }
   });
@@ -638,7 +653,15 @@ io.on('connection', (socket) => {
       sala.formato = sala.regras === 'boss' ? 'pvp' : (dados.formato || 'pvp');
       
       if (sala.jogadores.length === 1) {
-        ['[BOT] ASA', '[BOT] BOTAS', '[BOT] CAIM'].forEach((nome, i) => { sala.jogadores.push({ id: `bot_${i}`, nome, avatar: nome.toLowerCase().replace(/[^a-z]/g, ''), isBot: true, mao: [], disseUno: false, vitorias: 0, offline: false, corEquipe: null, isBoss: false }); });
+        ['[BOT] ALGA', '[BOT] BOTAS', '[BOT] LUNA'].forEach((nome, i) => { 
+          const avatarBot = AVATARES_BOTS[nome] || nome.toLowerCase().replace(/[^a-z]/g, '');
+          sala.jogadores.push({ 
+            id: `bot_${i}`, 
+            nome, 
+            avatar: avatarBot, 
+            isBot: true, mao: [], disseUno: false, vitorias: 0, offline: false, corEquipe: null, isBoss: false 
+          }); 
+        });
         io.to(dados.codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala));
       }
 
