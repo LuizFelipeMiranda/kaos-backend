@@ -154,8 +154,15 @@ function dispararEventoAleatorio(sala) {
   if (sala.turnoTimer) clearTimeout(sala.turnoTimer);
   if (sala.botTimer) clearTimeout(sala.botTimer);
 
+  // BLINDAGEM: Se a carta do topo da mesa estiver 'preto' (sem cor definida), sorteia uma cor para não travar o jogo após o evento
+  const cartaTopo = sala.mesa[sala.mesa.length - 1];
+  if (cartaTopo && cartaTopo.cor === 'preto') {
+    const coresValidas = ['vermelho', 'azul', 'verde', 'amarelo'];
+    cartaTopo.cor = coresValidas[Math.floor(Math.random() * coresValidas.length)];
+  }
+
   const eventos = [
-    { id: 'inverter', titulo: "🔄 SENTIDO INVERTIDO!", descricao: "A ordem de jogo foi revertida repentinamente." },
+    { id: 'inverter', titulo: "🔄 SENTIDO INVERTIDO!", descricao: "A ordem de jogo foi invertida." },
     { id: 'passar_mao', titulo: "👐 RODA A RODA!", descricao: "Todos passam a sua mão para o jogador ao lado." },
     { id: 'comprar_4', titulo: "🃏 CHUVA DE CARTAS!", descricao: "Todos compram 4 cartas!" },
     { id: 'igualar', titulo: "⚖️ EQUILÍBRIO!", descricao: "As mãos de todos os jogadores serão igualadas!" },
