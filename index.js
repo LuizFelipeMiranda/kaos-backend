@@ -17,11 +17,11 @@ const io = new Server(server, {
 
 // Avatares personalizados para os 5 Bots (adventurer-neutral)
 const AVATARES_BOTS = {
-  '[BOT] ALGA': 'Alga&eyes=variant14&mouth=variant06&eyebrows=variant03',   // Feminino
-  '[BOT] LUNA': 'Luna&eyes=variant05&mouth=variant02&eyebrows=variant02',   // Feminino
-  '[BOT] BOTAS': 'Botas&eyes=variant12&mouth=variant09&eyebrows=variant06',  // Masculino
-  '[BOT] VITE': 'Vite&eyes=variant10&mouth=variant15&eyebrows=variant04',    // Masculino
-  '[BOT] RYSER': 'Ryser&eyes=variant17&mouth=variant03&eyebrows=variant09'   // Masculino
+  '[BOT] ALGA': 'Alga&eyes=variant14&mouth=variant09&eyebrows=variant03',
+  '[BOT] LUNA': 'Luna&eyes=variant05&mouth=variant02&eyebrows=variant02',
+  '[BOT] BOTAS': 'Botas&eyes=variant12&mouth=variant01&eyebrows=variant06',
+  '[BOT] VITE': 'Vite&eyes=variant10&mouth=variant22&eyebrows=variant04',
+  '[BOT] RYSER': 'Ryser&eyes=variant17&mouth=variant03&eyebrows=variant09'
 };
 
 function criarBaralho(regras = 'kaos') {
