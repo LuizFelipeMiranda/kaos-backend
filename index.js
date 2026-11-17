@@ -16,11 +16,11 @@ const io = new Server(server, {
 });
 
 const AVATARES_BOTS = {
-  '[BOT] ALGA': 'aria-girl-10',      // Feminino
-  '[BOT] LUNA': 'sophia-queen-22',  // Feminino
-  '[BOT] BOTAS': 'marcus-king-01',  // Masculino
-  '[BOT] VITE': 'lucas-gamer-07',   // Masculino
-  '[BOT] RYSER': 'ryser-boss-99'    // Masculino
+  '[BOT] ALGA': 'bb3iel68',      // Feminino
+  '[BOT] LUNA': 'hcz57z9v',  // Feminino
+  '[BOT] BOTAS': 'it5qtaap',  // Masculino
+  '[BOT] VITE': 'g653042h',   // Masculino
+  '[BOT] RYSER': 's5weg9dw'    // Masculino
 };
 
 function criarBaralho(regras = 'kaos') {
