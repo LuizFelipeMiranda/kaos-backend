@@ -15,13 +15,12 @@ const io = new Server(server, {
   }
 });
 
-// Avatares personalizados para os 5 Bots (adventurer-neutral)
 const AVATARES_BOTS = {
-  '[BOT] ALGA': 'Alga&eyes=variant14&mouth=variant09&eyebrows=variant03',
-  '[BOT] LUNA': 'Luna&eyes=variant05&mouth=variant02&eyebrows=variant02',
-  '[BOT] BOTAS': 'Botas&eyes=variant12&mouth=variant01&eyebrows=variant06',
-  '[BOT] VITE': 'Vite&eyes=variant10&mouth=variant22&eyebrows=variant04',
-  '[BOT] RYSER': 'Ryser&eyes=variant17&mouth=variant03&eyebrows=variant09'
+  '[BOT] ALGA': 'aria-girl-10',      // Feminino
+  '[BOT] LUNA': 'sophia-queen-22',  // Feminino
+  '[BOT] BOTAS': 'marcus-king-01',  // Masculino
+  '[BOT] VITE': 'lucas-gamer-07',   // Masculino
+  '[BOT] RYSER': 'ryser-boss-99'    // Masculino
 };
 
 function criarBaralho(regras = 'kaos') {
