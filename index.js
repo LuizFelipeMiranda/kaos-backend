@@ -17,8 +17,8 @@ const io = new Server(server, {
 
 const AVATARES_BOTS = {
   '[BOT] ALGA': 'bb3iel68',      // Feminino
-  '[BOT] LUNA': 'hcz57z9v',  // Feminino
-  '[BOT] BOTAS': 'it5qtaap',  // Masculino
+  '[BOT] LUNA': 'hcz57z9v&glassesVariant=variant02&glassesProbability=100',  // Feminino
+  '[BOT] BOTAS': 'it5qtaap&glassesVariant=variant02,variant04&glassesProbability=100',  // Masculino
   '[BOT] VITE': 'g653042h',   // Masculino
   '[BOT] RYSER': 's5weg9dw'    // Masculino
 };
