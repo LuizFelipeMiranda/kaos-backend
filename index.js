@@ -170,12 +170,12 @@ function dispararEventoAleatorio(sala) {
   }
 
   const eventos = [
-    { id: 'inverter', titulo: "🔄 SENTIDO INVERTIDO!", descricao: "A ordem de jogo foi invertida." },
-    { id: 'passar_mao', titulo: "👐 RODA A RODA!", descricao: "Todos passam a sua mão para o jogador ao lado." },
-    { id: 'comprar_4', titulo: "🃏 CHUVA DE CARTAS!", descricao: "Todos compram 4 cartas!" },
-    { id: 'igualar', titulo: "⚖️ EQUILÍBRIO!", descricao: "As mãos de todos os jogadores serão igualadas!" },
-    { id: 'espiar', titulo: "👀 OLHOS BEM ABERTOS!", descricao: "Espie as cartas do próximo jogador!" },
-    { id: 'presente', titulo: "🎁 PRESENTE SURPRESA!", descricao: "Todos recebem uma carta de compra extra!" },
+    { id: 'inverter', titulo: "🔄 MUNDO INVERTIDO!", descricao: "O sentido do jogo foi invertido." },
+    { id: 'passar_mao', titulo: "👐 TROCA-TROCA (LÁ ELE!)", descricao: "Todos passam a sua mão para o jogador ao lado." },
+    { id: 'comprar_4', titulo: "🌧️ CHUVA DE CARTAS!", descricao: "Todos compram 4 cartas!" },
+    { id: 'igualar', titulo: "⚖️ BALANCEAMENTO!", descricao: "As mãos de todos os jogadores serão igualadas para a maior ou menor quantidade na mesa!" },
+    { id: 'espiar', titulo: "👀 FIQUE DE OLHO!", descricao: "Espie as cartas do próximo jogador!" },
+    { id: 'presente', titulo: "😈 PRESENTE KAÓTICO!", descricao: "Todos recebem uma carta de compra!" },
     { id: 'descarte_metade', titulo: "🗑️ QUEIMA DE ESTOQUE!", descricao: "Todos descartam metade de suas cartas!" }
   ];
 
