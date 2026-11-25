@@ -600,7 +600,9 @@ io.on('connection', (socket) => {
       const jogadorDesconectado = sala.jogadores.find(j => j.nome.toLowerCase().trim() === nomeJogador.toLowerCase().trim() && j.offline);
       if (jogadorDesconectado) {
         jogadorDesconectado.id = socket.id; jogadorDesconectado.offline = false; jogadorDesconectado.avatar = avatar;
-        socket.join(codigoSala); socket.emit('entrou_na_sala', codigoSala);
+        socket.join(codigoSala); 
+        socket.emit('entrou_na_sala', codigoSala);
+        socket.emit('config_sala_atualizada', { regras: sala.regras, formato: sala.formato });
         if (sala.status === 'jogando' || sala.status === 'sorteando') {
           socket.emit('partida_iniciada', { minhaMao: jogadorDesconectado.mao, cartaMesa: sala.mesa[sala.mesa.length - 1], turnoAtual: sala.jogadores[sala.turnoIndex].id, sentido: sala.sentido, comprouNestaRodada: sala.comprouNestaRodada, comprasAcumuladas: sala.comprasAcumuladas, infoJogadores: obterInfoJogadores(sala), resetarTempo: false, jogadaBossAtiva: sala.jogadaBossAtiva || 1 });
         }
@@ -611,8 +613,20 @@ io.on('connection', (socket) => {
       if (sala.status === 'jogando' || sala.status === 'sorteando') return socket.emit('erro', 'A partida já começou!');
       if (sala.jogadores.length >= 6) return socket.emit('erro', 'A sala está cheia.');
       sala.jogadores.push({ id: socket.id, nome: nomeJogador, avatar, isBot: false, vitorias: 0, offline: false, corEquipe: null, isBoss: false });
-      socket.join(codigoSala); io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala)); socket.emit('entrou_na_sala', codigoSala);
+      socket.join(codigoSala); 
+      io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala)); 
+      socket.emit('entrou_na_sala', codigoSala);
+      socket.emit('config_sala_atualizada', { regras: sala.regras, formato: sala.formato });
     } else { socket.emit('erro', 'Código da sala não encontrado!'); }
+  });
+
+  socket.on('alterar_config_sala', ({ codigoSala, regras, formato }) => {
+    const sala = salas[codigoSala];
+    if (sala && (sala.status === 'esperando' || sala.status === 'finalizado') && sala.jogadores[0]?.id === socket.id) {
+      if (regras) sala.regras = regras;
+      if (formato) sala.formato = formato;
+      io.to(codigoSala).emit('config_sala_atualizada', { regras: sala.regras, formato: sala.formato });
+    }
   });
 
   socket.on('adicionar_bot', ({ codigoSala, nomeBot }) => {
