@@ -119,6 +119,19 @@ const obterInfoJogadores = (sala) => sala.jogadores.map(j => ({
   isBoss: j.isBoss || false
 }));
 
+const emitirConfigSala = (sala) => {
+  io.to(sala.id).emit('config_sala_atualizada', {
+    regras: sala.regras,
+    formato: sala.formato,
+    totalPartidas: sala.totalPartidas,
+    partidaAtual: sala.partidaAtual,
+    modoLiga: sala.modoLiga,
+    nomeLiga: sala.nomeLiga,
+    emDesempate: sala.emDesempate || false,
+    nomesEmpatados: sala.nomesEmpatados || []
+  });
+};
+
 function emitirAtualizacao(sala, resetarTempo = true) {
   sala.jogadores.forEach(jogador => {
     if (!jogador.offline && !jogador.isBot) {
@@ -341,17 +354,16 @@ function avancarTurno(sala, pulosExtras = 0) {
   emitirAtualizacao(sala, true);
 }
 
-function finalizarPartidaLiga(sala) {
+function finalizarPartidaLiga(sala, venceuDesempate = false) {
   sala.status = 'finalizado';
+  sala.eventoBateMesa = { ativo: false, jogadoresQueBateram: [], punicao: 0 };
   if (sala.botTimer) clearTimeout(sala.botTimer);
   if (sala.turnoTimer) clearTimeout(sala.turnoTimer);
   if (sala.eventoAleatorioTimer) clearTimeout(sala.eventoAleatorioTimer);
 
-  const ehUltimaPartida = sala.partidaAtual >= sala.totalPartidas;
+  const ehUltimaPartida = venceuDesempate || sala.partidaAtual >= sala.totalPartidas;
 
   if (ehUltimaPartida) {
-    sala.ligaFinalizada = true;
-
     if (sala.formato === 'duplas') {
       const duplas = [0, 1, 2].map(i => {
         const j1 = sala.jogadores[i];
@@ -364,6 +376,26 @@ function finalizarPartidaLiga(sala) {
         };
       }).sort((a, b) => b.pontos - a.pontos);
 
+      // Verifica empate na 1ª colocação (se ainda não foi resolvido no desempate)
+      if (!venceuDesempate && duplas.length > 1 && duplas[0].pontos === duplas[1].pontos) {
+        const maiorPontuacao = duplas[0].pontos;
+        const duplasEmpatadas = duplas.filter(d => d.pontos === maiorPontuacao);
+        sala.emDesempate = true;
+        sala.empatadosIds = duplasEmpatadas.flatMap(d => [d.j1.id, d.j2.id]);
+        sala.nomesEmpatados = duplasEmpatadas.map(d => `${d.j1.nome} & ${d.j2.nome}`);
+
+        emitirConfigSala(sala);
+        io.to(sala.id).emit('fim_de_jogo', `⚖️ EMPATE NA LIDERANÇA (${maiorPontuacao} pts)! Empatados: ${sala.nomesEmpatados.join(' vs ')}. Próxima partida é MORTE SÚBITA: a primeira dupla empatada a bater vence a Liga!`);
+        io.to(sala.id).emit('atualizar_jogadores', obterInfoJogadores(sala));
+        return;
+      }
+
+      sala.ligaFinalizada = true;
+      sala.emDesempate = false;
+      sala.empatadosIds = [];
+      sala.nomesEmpatados = [];
+      emitirConfigSala(sala);
+
       io.to(sala.id).emit('fim_da_liga', {
         nomeLiga: sala.nomeLiga,
         formato: 'duplas',
@@ -373,6 +405,26 @@ function finalizarPartidaLiga(sala) {
       });
     } else {
       const rankingSolo = [...sala.jogadores].sort((a, b) => (b.pontos || 0) - (a.pontos || 0));
+
+      // Verifica empate na 1ª colocação (se ainda não foi resolvido no desempate)
+      if (!venceuDesempate && rankingSolo.length > 1 && (rankingSolo[0].pontos || 0) === (rankingSolo[1].pontos || 0)) {
+        const maiorPontuacao = rankingSolo[0].pontos || 0;
+        const jogadoresEmpatados = rankingSolo.filter(j => (j.pontos || 0) === maiorPontuacao);
+        sala.emDesempate = true;
+        sala.empatadosIds = jogadoresEmpatados.map(j => j.id);
+        sala.nomesEmpatados = jogadoresEmpatados.map(j => j.nome);
+
+        emitirConfigSala(sala);
+        io.to(sala.id).emit('fim_de_jogo', `⚖️ EMPATE NA LIDERANÇA (${maiorPontuacao} pts)! Empatados: ${sala.nomesEmpatados.join(' vs ')}. Próxima partida é MORTE SÚBITA: o primeiro empatado a bater vence a Liga!`);
+        io.to(sala.id).emit('atualizar_jogadores', obterInfoJogadores(sala));
+        return;
+      }
+
+      sala.ligaFinalizada = true;
+      sala.emDesempate = false;
+      sala.empatadosIds = [];
+      sala.nomesEmpatados = [];
+      emitirConfigSala(sala);
 
       io.to(sala.id).emit('fim_da_liga', {
         nomeLiga: sala.nomeLiga,
@@ -384,14 +436,7 @@ function finalizarPartidaLiga(sala) {
     }
   } else {
     sala.partidaAtual += 1;
-    io.to(sala.id).emit('config_sala_atualizada', {
-      regras: sala.regras,
-      formato: sala.formato,
-      totalPartidas: sala.totalPartidas,
-      partidaAtual: sala.partidaAtual,
-      modoLiga: sala.modoLiga,
-      nomeLiga: sala.nomeLiga
-    });
+    emitirConfigSala(sala);
     const resumoRodada = sala.podioAtual.map(p => `${p.lugar}º ${p.nomes} (+${p.pontos})`).join(' | ');
     io.to(sala.id).emit('fim_de_jogo', `Fim da Rodada! ${resumoRodada}`);
   }
@@ -484,81 +529,123 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     sala.mesa.push(cartaJogada);
   });
 
-  if (jogador.mao.length === 0) {
-    // === MODO LIGA DO KAOS ===
+  const zerouMao = jogador.mao.length === 0;
+  let encerrouPartidaNaJogada = false;
+
+  // Registra pódio na Liga antes dos efeitos de mesa (evita que igualar/reinicio devolva cartas a quem já bateu)
+  if (zerouMao) {
     if (sala.modoLiga) {
-      const tabelaPontos = [1000, 700, 500];
-      const lugarAtual = sala.podioAtual.length + 1;
-      const pontosGanhos = tabelaPontos[lugarAtual - 1] || 0;
-
-      if (sala.formato === 'duplas') {
-        const idx = sala.jogadores.findIndex(j => j.id === jogador.id);
-        const parceiro = sala.jogadores[(idx + 3) % 6];
-
-        jogador.posicaoPodio = lugarAtual;
-        jogador.pontos = (jogador.pontos || 0) + pontosGanhos;
-        jogador.mao = [];
-
-        if (parceiro) {
-          parceiro.posicaoPodio = lugarAtual;
-          parceiro.pontos = (parceiro.pontos || 0) + pontosGanhos;
-          parceiro.mao = [];
-        }
-
-        sala.podioAtual.push({ lugar: lugarAtual, nomes: `${jogador.nome} & ${parceiro?.nome}`, pontos: pontosGanhos });
-        io.to(sala.id).emit('erro', `🏅 ${lugarAtual}º Lugar: ${jogador.nome} & ${parceiro?.nome} (+${pontosGanhos} pts)!`);
-
-        if (sala.podioAtual.length >= 2) {
-          finalizarPartidaLiga(sala);
+      if (sala.emDesempate) {
+        const ehEmpatado = sala.empatadosIds && sala.empatadosIds.includes(jogador.id);
+        if (ehEmpatado) {
+          if (sala.formato === 'duplas') {
+            const idx = sala.jogadores.findIndex(j => j.id === jogador.id);
+            const parceiro = sala.jogadores[(idx + 3) % 6];
+            jogador.posicaoPodio = 1;
+            jogador.pontos = (jogador.pontos || 0) + 1000;
+            jogador.mao = [];
+            if (parceiro) {
+              parceiro.posicaoPodio = 1;
+              parceiro.pontos = (parceiro.pontos || 0) + 1000;
+              parceiro.mao = [];
+            }
+          } else {
+            jogador.posicaoPodio = 1;
+            jogador.pontos = (jogador.pontos || 0) + 1000;
+          }
+          finalizarPartidaLiga(sala, true);
           return;
+        } else {
+          // Jogador fora do empate bateu durante a Morte Súbita: sai da rodada atual e o jogo segue
+          if (sala.formato === 'duplas') {
+            const idx = sala.jogadores.findIndex(j => j.id === jogador.id);
+            const parceiro = sala.jogadores[(idx + 3) % 6];
+            jogador.posicaoPodio = 3;
+            jogador.mao = [];
+            if (parceiro) {
+              parceiro.posicaoPodio = 3;
+              parceiro.mao = [];
+            }
+            io.to(sala.id).emit('erro', `${jogador.nome} & ${parceiro?.nome} zeraram as cartas! A Morte Súbita continua entre os empatados.`);
+          } else {
+            jogador.posicaoPodio = 4;
+            io.to(sala.id).emit('erro', `${jogador.nome} zerou as cartas! A Morte Súbita continua entre os empatados.`);
+          }
         }
       } else {
-        jogador.posicaoPodio = lugarAtual;
-        jogador.pontos = (jogador.pontos || 0) + pontosGanhos;
-        sala.podioAtual.push({ lugar: lugarAtual, nomes: jogador.nome, pontos: pontosGanhos });
-        io.to(sala.id).emit('erro', `🏅 ${lugarAtual}º Lugar: ${jogador.nome} (+${pontosGanhos} pts)!`);
+        const tabelaPontos = [1000, 700, 500];
+        const lugarAtual = sala.podioAtual.length + 1;
+        const pontosGanhos = tabelaPontos[lugarAtual - 1] || 0;
 
-        if (sala.podioAtual.length >= 3) {
-          finalizarPartidaLiga(sala);
-          return;
+        if (sala.formato === 'duplas') {
+          const idx = sala.jogadores.findIndex(j => j.id === jogador.id);
+          const parceiro = sala.jogadores[(idx + 3) % 6];
+
+          jogador.posicaoPodio = lugarAtual;
+          jogador.pontos = (jogador.pontos || 0) + pontosGanhos;
+          jogador.mao = [];
+
+          if (parceiro) {
+            parceiro.posicaoPodio = lugarAtual;
+            parceiro.pontos = (parceiro.pontos || 0) + pontosGanhos;
+            parceiro.mao = [];
+          }
+
+          sala.podioAtual.push({ lugar: lugarAtual, nomes: `${jogador.nome} & ${parceiro?.nome}`, pontos: pontosGanhos });
+          io.to(sala.id).emit('erro', `🏅 ${lugarAtual}º Lugar: ${jogador.nome} & ${parceiro?.nome} (+${pontosGanhos} pts)!`);
+
+          if (sala.podioAtual.length >= 2) {
+            encerrouPartidaNaJogada = true;
+          }
+        } else {
+          jogador.posicaoPodio = lugarAtual;
+          jogador.pontos = (jogador.pontos || 0) + pontosGanhos;
+          sala.podioAtual.push({ lugar: lugarAtual, nomes: jogador.nome, pontos: pontosGanhos });
+          io.to(sala.id).emit('erro', `🏅 ${lugarAtual}º Lugar: ${jogador.nome} (+${pontosGanhos} pts)!`);
+
+          if (sala.podioAtual.length >= 3) {
+            encerrouPartidaNaJogada = true;
+          }
         }
       }
+    } else {
+      // === MODO NORMAL (SEM LIGA) ===
+      sala.status = 'finalizado';
+      if(sala.botTimer) clearTimeout(sala.botTimer);
+      if(sala.turnoTimer) clearTimeout(sala.turnoTimer);
+      if(sala.eventoAleatorioTimer) clearTimeout(sala.eventoAleatorioTimer);
 
+      if (sala.regras === 'boss') {
+        if (jogador.isBoss) {
+          jogador.vitorias = (jogador.vitorias || 0) + 1;
+          io.to(sala.id).emit('fim_de_jogo', `💀 O CHEFÃO (${jogador.nome})`);
+        } else {
+          sala.jogadores.forEach(j => { if (!j.isBoss) j.vitorias = (j.vitorias || 0) + 1; });
+          io.to(sala.id).emit('fim_de_jogo', ` Os jogadores venceram o CHEFÃO!`);
+        }
+      } else if (sala.formato === 'duplas') {
+        const parceiro = sala.jogadores[(sala.jogadores.findIndex(j => j.id === jogador.id) + sala.jogadores.length / 2) % sala.jogadores.length];
+        jogador.vitorias = (jogador.vitorias || 0) + 1;
+        if (parceiro) parceiro.vitorias = (parceiro.vitorias || 0) + 1;
+        io.to(sala.id).emit('fim_de_jogo', `${jogador.nome} & ${parceiro ? parceiro.nome : 'Parceiro'}`);
+      } else {
+        jogador.vitorias = (jogador.vitorias || 0) + 1; 
+        io.to(sala.id).emit('fim_de_jogo', jogador.nome);
+      }
       io.to(sala.id).emit('atualizar_jogadores', obterInfoJogadores(sala));
-      avancarTurno(sala, 0);
       return;
     }
-
-    // === MODO NORMAL (SEM LIGA) ===
-    sala.status = 'finalizado';
-    if(sala.botTimer) clearTimeout(sala.botTimer);
-    if(sala.turnoTimer) clearTimeout(sala.turnoTimer);
-    if(sala.eventoAleatorioTimer) clearTimeout(sala.eventoAleatorioTimer);
-
-    if (sala.regras === 'boss') {
-      if (jogador.isBoss) {
-        jogador.vitorias = (jogador.vitorias || 0) + 1;
-        io.to(sala.id).emit('fim_de_jogo', `💀 O CHEFÃO (${jogador.nome})`);
-      } else {
-        sala.jogadores.forEach(j => { if (!j.isBoss) j.vitorias = (j.vitorias || 0) + 1; });
-        io.to(sala.id).emit('fim_de_jogo', ` Os jogadores venceram o CHEFÃO!`);
-      }
-    } else if (sala.formato === 'duplas') {
-      const parceiro = sala.jogadores[(sala.jogadores.findIndex(j => j.id === jogador.id) + sala.jogadores.length / 2) % sala.jogadores.length];
-      jogador.vitorias = (jogador.vitorias || 0) + 1;
-      if (parceiro) parceiro.vitorias = (parceiro.vitorias || 0) + 1;
-      io.to(sala.id).emit('fim_de_jogo', `${jogador.nome} & ${parceiro ? parceiro.nome : 'Parceiro'}`);
-    } else {
-      jogador.vitorias = (jogador.vitorias || 0) + 1; 
-      io.to(sala.id).emit('fim_de_jogo', jogador.nome);
-    }
-    io.to(sala.id).emit('atualizar_jogadores', obterInfoJogadores(sala));
-    return;
   }
 
+  // Aplica cor/número escolhido e efeitos das cartas (inclusive se o jogador acabou de bater na Liga)
   const ultima = sala.mesa[sala.mesa.length - 1];
   if (ultima.valor === 'escolher_numero' && alvoNumero) ultima.valor = alvoNumero;
   else if (ultima.cor === 'preto' && novaCor) ultima.cor = novaCor;
+
+  if (encerrouPartidaNaJogada) {
+    finalizarPartidaLiga(sala, false);
+    return;
+  }
 
   let pulosExtras = 0;
   if (cartas[0].originalValor === 'inverter') { if (cartas.length % 2 !== 0) sala.sentido *= -1; } 
@@ -597,7 +684,7 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
   }
 
   const temZero = cartas.some(c => c.originalValor === '0');
-  if (temZero && sala.regras !== 'boss' && alvoTroca) {
+  if (temZero && !zerouMao && sala.regras !== 'boss' && alvoTroca) {
     if (alvoTroca === 'ninguem') io.to(sala.id).emit('erro', `O jogador ${jogador.nome} manteve as cartas.`);
     else if (alvoTroca === 'todos' && ativos.length > 1) {
       const maosAntigas = ativos.map(j => [...j.mao]);
@@ -623,6 +710,10 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
         setTimeout(() => efetuarBaterMesa(sala, j), Math.floor(Math.random() * 2500) + 1500);
       }
     });
+  }
+
+  if (zerouMao) {
+    io.to(sala.id).emit('atualizar_jogadores', obterInfoJogadores(sala));
   }
 
   avancarTurno(sala, pulosExtras);
@@ -729,10 +820,13 @@ io.on('connection', (socket) => {
       regras: 'kaos',
       formato: 'pvp',
       modoLiga: Boolean(modoLiga),
-      nomeLiga: (nomeLiga || '').trim() || 'Liga do Kaos',
+      nomeLiga: (nomeLiga || '').trim().slice(0, 12) || 'Liga do Kaos',
       totalPartidas: 3,
       partidaAtual: 1,
       ligaFinalizada: false,
+      emDesempate: false,
+      empatadosIds: [],
+      nomesEmpatados: [],
       podioAtual: [],
       jogadores: [{
         id: socket.id,
@@ -753,7 +847,8 @@ io.on('connection', (socket) => {
       modoLiga: salas[codigoSala].modoLiga,
       nomeLiga: salas[codigoSala].nomeLiga,
       totalPartidas: salas[codigoSala].totalPartidas,
-      partidaAtual: salas[codigoSala].partidaAtual
+      partidaAtual: salas[codigoSala].partidaAtual,
+      emDesempate: false
     });
   });
 
@@ -765,14 +860,7 @@ io.on('connection', (socket) => {
         jogadorDesconectado.id = socket.id; jogadorDesconectado.offline = false; jogadorDesconectado.avatar = avatar;
         socket.join(codigoSala); 
         socket.emit('entrou_na_sala', codigoSala);
-        socket.emit('config_sala_atualizada', {
-          regras: sala.regras,
-          formato: sala.formato,
-          totalPartidas: sala.totalPartidas,
-          partidaAtual: sala.partidaAtual,
-          modoLiga: sala.modoLiga,
-          nomeLiga: sala.nomeLiga
-        });
+        emitirConfigSala(sala);
         if (sala.status === 'jogando' || sala.status === 'sorteando') {
           socket.emit('partida_iniciada', { minhaMao: jogadorDesconectado.mao, cartaMesa: sala.mesa[sala.mesa.length - 1], turnoAtual: sala.jogadores[sala.turnoIndex].id, sentido: sala.sentido, comprouNestaRodada: sala.comprouNestaRodada, comprasAcumuladas: sala.comprasAcumuladas, infoJogadores: obterInfoJogadores(sala), resetarTempo: false, jogadaBossAtiva: sala.jogadaBossAtiva || 1 });
         }
@@ -797,31 +885,21 @@ io.on('connection', (socket) => {
       socket.join(codigoSala); 
       io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala)); 
       socket.emit('entrou_na_sala', codigoSala);
-      socket.emit('config_sala_atualizada', {
-        regras: sala.regras,
-        formato: sala.formato,
-        totalPartidas: sala.totalPartidas,
-        partidaAtual: sala.partidaAtual,
-        modoLiga: sala.modoLiga,
-        nomeLiga: sala.nomeLiga
-      });
+      emitirConfigSala(sala);
     } else { socket.emit('erro', 'Código da sala não encontrado!'); }
   });
 
   socket.on('alterar_config_sala', ({ codigoSala, regras, formato, totalPartidas }) => {
     const sala = salas[codigoSala];
     if (sala && (sala.status === 'esperando' || sala.status === 'finalizado') && sala.jogadores[0]?.id === socket.id) {
+      const ligaEmAndamento = sala.modoLiga && (sala.partidaAtual > 1 || sala.emDesempate) && !sala.ligaFinalizada;
+      if (ligaEmAndamento) {
+        return socket.emit('erro', 'As configurações ficam bloqueadas durante a Liga!');
+      }
       if (regras) sala.regras = regras;
       if (formato) sala.formato = formato;
       if (totalPartidas) sala.totalPartidas = totalPartidas;
-      io.to(codigoSala).emit('config_sala_atualizada', {
-        regras: sala.regras,
-        formato: sala.formato,
-        totalPartidas: sala.totalPartidas,
-        partidaAtual: sala.partidaAtual,
-        modoLiga: sala.modoLiga,
-        nomeLiga: sala.nomeLiga
-      });
+      emitirConfigSala(sala);
     }
   });
 
@@ -842,6 +920,9 @@ io.on('connection', (socket) => {
   socket.on('remover_jogador', ({ codigoSala, alvoId }) => {
     const sala = salas[codigoSala];
     if (sala && (sala.status === 'esperando' || sala.status === 'finalizado') && sala.jogadores[0].id === socket.id) {
+      const ligaEmAndamento = sala.modoLiga && (sala.partidaAtual > 1 || sala.emDesempate) && !sala.ligaFinalizada;
+      if (ligaEmAndamento) return socket.emit('erro', 'Não é possível expulsar jogadores no meio da Liga!');
+
       const index = sala.jogadores.findIndex(j => j.id === alvoId);
       if (index > 0) { const j = sala.jogadores[index]; sala.jogadores.splice(index, 1); io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala)); if (!j.isBot) io.to(alvoId).emit('voce_foi_removido'); }
     }
@@ -850,6 +931,9 @@ io.on('connection', (socket) => {
   socket.on('reordenar_jogadores', ({ codigoSala, novaOrdem }) => {
     const sala = salas[codigoSala];
     if (sala && (sala.status === 'esperando' || sala.status === 'finalizado') && sala.jogadores[0].id === socket.id) {
+      const ligaEmAndamento = sala.modoLiga && (sala.partidaAtual > 1 || sala.emDesempate) && !sala.ligaFinalizada;
+      if (ligaEmAndamento) return socket.emit('erro', 'Não é possível trocar a ordem das duplas no meio da Liga!');
+
       const novaLista = []; novaOrdem.forEach(id => { const jog = sala.jogadores.find(j => j.id === id); if (jog) novaLista.push(jog); });
       if (novaLista.length === sala.jogadores.length) { sala.jogadores = novaLista; io.to(codigoSala).emit('atualizar_jogadores', obterInfoJogadores(sala)); }
     }
@@ -858,6 +942,8 @@ io.on('connection', (socket) => {
   socket.on('iniciar_partida', (dados) => {
     const sala = salas[dados.codigoSala];
     if (sala && sala.jogadores[0].id === socket.id && sala.status !== 'sorteando' && sala.status !== 'jogando') {
+      const ligaEmAndamento = sala.modoLiga && (sala.partidaAtual > 1 || sala.emDesempate) && !sala.ligaFinalizada;
+
       if (sala.modoLiga) {
         if (sala.jogadores.length !== 6) {
           return socket.emit('erro', 'A Liga do Kaos exige exatamente 6 jogadores (adicione bots se precisar)!');
@@ -868,20 +954,20 @@ io.on('connection', (socket) => {
         if (sala.ligaFinalizada) {
           sala.partidaAtual = 1;
           sala.ligaFinalizada = false;
+          sala.emDesempate = false;
+          sala.empatadosIds = [];
+          sala.nomesEmpatados = [];
           sala.jogadores.forEach(j => { j.pontos = 0; });
-          io.to(dados.codigoSala).emit('config_sala_atualizada', {
-            regras: sala.regras,
-            formato: sala.formato,
-            totalPartidas: sala.totalPartidas,
-            partidaAtual: sala.partidaAtual,
-            modoLiga: sala.modoLiga,
-            nomeLiga: sala.nomeLiga
-          });
+          emitirConfigSala(sala);
         }
       }
 
-      sala.regras = dados.regras || 'kaos'; 
-      sala.formato = sala.regras === 'boss' ? 'pvp' : (dados.formato || 'pvp');
+      // Se a Liga já está em andamento, ignora qualquer configuração externa e mantém as originais travadas
+      if (!ligaEmAndamento) {
+        sala.regras = dados.regras || 'kaos'; 
+        sala.formato = sala.regras === 'boss' ? 'pvp' : (dados.formato || 'pvp');
+      }
+
       sala.podioAtual = [];
       sala.jogadores.forEach(j => { j.posicaoPodio = null; });
       
