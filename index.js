@@ -177,6 +177,15 @@ function agendarEventoAleatorio(sala) {
 
 function dispararEventoAleatorio(sala) {
   if (sala.status !== 'jogando') return;
+
+  // Não interrompe evento do 9 ("bater na mesa") nem escolha pendente de carta (0, +4, coringa, espiar, igualar, número)
+  if ((sala.eventoBateMesa && sala.eventoBateMesa.ativo) || sala.resolvendoEfeitoCarta) {
+    if (sala.eventoAleatorioTimer) clearTimeout(sala.eventoAleatorioTimer);
+    sala.eventoAleatorioTimer = setTimeout(() => dispararEventoAleatorio(sala), 1500);
+    return;
+  }
+
+  sala.eventoAleatorioEmCurso = true;
   
   if (sala.turnoTimer) clearTimeout(sala.turnoTimer);
   if (sala.botTimer) clearTimeout(sala.botTimer);
@@ -203,6 +212,7 @@ function dispararEventoAleatorio(sala) {
   setTimeout(() => {
     if (!salas[sala.id]) return;
     executarEventoAleatorio(sala, evento.id);
+    sala.eventoAleatorioEmCurso = false;
     io.to(sala.id).emit('evento_aleatorio_concluido');
     
     if (sala.status === 'jogando') {
@@ -357,6 +367,8 @@ function avancarTurno(sala, pulosExtras = 0) {
 
 function finalizarPartidaLiga(sala, venceuDesempate = false) {
   sala.status = 'finalizado';
+  sala.resolvendoEfeitoCarta = null;
+  sala.eventoAleatorioEmCurso = false;
   sala.eventoBateMesa = { ativo: false, jogadoresQueBateram: [], punicao: 0 };
   if (sala.botTimer) clearTimeout(sala.botTimer);
   if (sala.turnoTimer) clearTimeout(sala.turnoTimer);
@@ -445,6 +457,7 @@ function finalizarPartidaLiga(sala, venceuDesempate = false) {
 
 function estourarTempo(sala, jogador) {
   if (sala.status !== 'jogando' || sala.jogadores[sala.turnoIndex].id !== jogador.id || jogador.posicaoPodio) return;
+  sala.resolvendoEfeitoCarta = null;
   if (sala.comprasAcumuladas > 0) efetuarCompra(sala, jogador);
   else { if (!sala.comprouNestaRodada) efetuarCompra(sala, jogador); efetuarPassagem(sala, jogador); }
   io.to(sala.id).emit('erro', `O tempo de ${jogador.nome} esgotou-se!`);
@@ -509,6 +522,13 @@ function executarTurnoBot(sala, bot) {
 
 function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alvoNumero) {
   if (!sala || sala.status !== 'jogando' || !jogador || jogador.posicaoPodio || sala.jogadores[sala.turnoIndex].id !== jogador.id) return;
+  
+  sala.resolvendoEfeitoCarta = null;
+
+  if (sala.eventoAleatorioEmCurso) {
+    io.to(jogador.id).emit('cancelar_modal_efeito');
+    return;
+  }
   if (sala.eventoBateMesa && sala.eventoBateMesa.ativo) return io.to(jogador.id).emit('erro', 'Aguarde o fim do evento do 9!');
   if (!cartas || cartas.length === 0) return;
 
@@ -608,6 +628,7 @@ function efetuarJogada(sala, jogador, cartas, novaCor, alvoTroca, alvoOpcao, alv
     } else {
       // === MODO NORMAL (SEM LIGA) ===
       sala.status = 'finalizado';
+      sala.eventoAleatorioEmCurso = false;
       if(sala.botTimer) clearTimeout(sala.botTimer);
       if(sala.turnoTimer) clearTimeout(sala.turnoTimer);
       if(sala.eventoAleatorioTimer) clearTimeout(sala.eventoAleatorioTimer);
@@ -791,6 +812,9 @@ io.on('connection', (socket) => {
       const sala = salas[codigoSala];
       const index = sala.jogadores.findIndex(j => j.id === socketId);
       if (index !== -1) {
+        if (sala.resolvendoEfeitoCarta === socketId) {
+          sala.resolvendoEfeitoCarta = null;
+        }
         const jogador = sala.jogadores[index];
         if (sala.status === 'jogando' || sala.status === 'sorteando') {
           jogador.offline = true;
@@ -824,6 +848,8 @@ io.on('connection', (socket) => {
       empatadosIds: [],
       nomesEmpatados: [],
       podioAtual: [],
+      resolvendoEfeitoCarta: null,
+      eventoAleatorioEmCurso: false,
       jogadores: [{
         id: socket.id,
         nome: nomeJogador,
@@ -960,6 +986,8 @@ io.on('connection', (socket) => {
       }
 
       sala.podioAtual = [];
+      sala.resolvendoEfeitoCarta = null;
+      sala.eventoAleatorioEmCurso = false;
       sala.jogadores.forEach(j => { j.posicaoPodio = null; });
       
       if (!sala.modoLiga && sala.jogadores.length === 1) {
@@ -1026,6 +1054,19 @@ io.on('connection', (socket) => {
           agendarEventoAleatorio(sala);
         }
       }, 3500); 
+    }
+  });
+
+  socket.on('iniciando_efeito_carta', (codigoSala) => {
+    const sala = salas[codigoSala];
+    if (!sala || sala.status !== 'jogando') return;
+    if (sala.eventoAleatorioEmCurso || (sala.eventoBateMesa && sala.eventoBateMesa.ativo)) {
+      return socket.emit('cancelar_modal_efeito');
+    }
+    if (sala.jogadores[sala.turnoIndex]?.id === socket.id) {
+      sala.resolvendoEfeitoCarta = socket.id;
+      if (sala.turnoTimer) clearTimeout(sala.turnoTimer);
+      agendarTurnoSeguranca(sala);
     }
   });
 
